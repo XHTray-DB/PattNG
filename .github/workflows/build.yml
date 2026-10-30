@@ -37,7 +37,8 @@ jobs:
       with:
         log-accepted-android-sdk-licenses: false
         cmdline-tools-version: '14742923'
-        packages: 'platforms;android-37.0 build-tools;37.0.0 platform-tools'
+        packages: 
+'platforms;android-37.0 build-tools;37.0.0 platform-tools'
 
     - name: Install NDK
       run: |
@@ -47,7 +48,8 @@ jobs:
         echo "NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> $GITHUB_ENV
         sed -i '10i\
         \
-            ndkVersion = "30.0.16248370"' ${{ github.workspace }}/V2rayNG/app/build.gradle.kts
+            ndkVersion = "30.0.16248370"' $
+{{ github.workspace }}/V2rayNG/app/build.gradle.kts
 
     - name: Restore cached libhevtun
       id: cache-libhevtun-restore
@@ -57,7 +59,8 @@ jobs:
         key: libhevtun-${{ runner.os }}-${{ env.NDK_HOME }}-${{ hashFiles('.git/modules/hev-socks5-tunnel/HEAD') }}-${{ hashFiles('compile-hevtun.sh') }}
 
     - name: Build libhevtun
-      if: steps.cache-libhevtun-restore.outputs.cache-hit != 'true'
+      if: steps.cache-libhevtun
+-restore.outputs.cache-hit != 'true'
       run: |
         bash compile-hevtun.sh
     
@@ -66,7 +69,8 @@ jobs:
       uses: actions/cache/save@v6
       with:
         path: ${{ github.workspace }}/libs
-        key: libhevtun-${{ runner.os }}-${{ env.NDK_HOME }}-${{ hashFiles('.git/modules/hev-socks5-tunnel/HEAD') }}-${{ hashFiles('compile-hevtun.sh') }}
+        key: libhevtun-${{ runner.os }}-${{ env.NDK_HOME }}-${{ hashFiles('.git/modules/hev-socks5-tunnel/HEAD') }}-$
+{{ hashFiles('compile-hevtun.sh') }}
 
     - name: Install Rust
       id: rust-toolchain
@@ -79,7 +83,8 @@ jobs:
       id: cache-libaether-restore
       uses: actions/cache/restore@v6
       with:
-        path: ${{ github.workspace }}/libs-aether
+        path: ${{ github.workspace }}/
+libs-aether
         key: libaether-${{ runner.os }}-${{ env.NDK_HOME }}-${{ steps.rust-toolchain.outputs.cachekey }}-${{ hashFiles('.git/modules/aether/HEAD') }}-${{ hashFiles('compile-aether.sh') }}
 
     - name: Build libaether
@@ -88,7 +93,8 @@ jobs:
         bash compile-aether.sh
 
     - name: Save libaether
-      if: steps.cache-libaether-restore.outputs.cache-hit != 'true'
+      if: steps.cache-libaether-
+restore.outputs.cache-hit != 'true'
       uses: actions/cache/save@v6
       with:
         path: ${{ github.workspace }}/libs-aether
@@ -97,7 +103,8 @@ jobs:
     - name: Install Go
       uses: actions/setup-go@v5
       with:
-        go-version: ${{ env.GO_VERSION }}
+        go-version: $
+{{ env.GO_VERSION }}
         # The client is built from a checkout of its own; there is no go.sum here to cache by.
         cache: false
 
@@ -107,7 +114,8 @@ jobs:
       id: cache-psiphon-restore
       uses: actions/cache/restore@v6
       with:
-        path: ${{ github.workspace }}/libs-psiphon
+        path: ${{ github.workspace }}/
+libs-psiphon
         key: psiphon-${{ runner.os }}-${{ env.GO_VERSION }}-${{ hashFiles('aether/psiphon-build.sh') }}-${{ hashFiles('compile-psiphon.sh') }}
 
     - name: Build the Psiphon client
@@ -161,7 +169,8 @@ jobs:
         pushd AndroidLibXrayLite
         CURRENT_TAG=$(git describe --tags --abbrev=0)
         echo "Current tag in this repo: $CURRENT_TAG"
-        echo "CURRENT_TAG=$CURRENT_TAG" >> $GITHUB_ENV
+        echo "CURRENT_TAG=$CURRENT_TAG" 
+>> $GITHUB_ENV
         popd
 
     - name: Download libv2ray
@@ -178,12 +187,12 @@ jobs:
         distribution: 'temurin'
         java-version: '21'
 
-    - name: Decode Keystore
-      uses: timheuer/base64-to-file@v2.0.0
+    - name: Create test keystore
       id: android_keystore
-      with:
-        fileName: "android_keystore.jks"
-        encodedString: ${{ secrets.APP_KEYSTORE_BASE64 }}
+      run: |
+        keytool -genkeypair -v -keystore "$RUNNER_TEMP/test.jks" -storepass v2gettest -keypass v2gettest \
+          -alias v2get -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=V2GET"
+        echo "filePath=$RUNNER_TEMP/test.jks" >> "$GITHUB_OUTPUT"
 
     - name: Build APK
       run: |
@@ -194,7 +203,8 @@ jobs:
         # build before anything is assembled or signed.
         ./gradlew :app:testPlaystoreDebugUnitTest
         ./gradlew licenseFdroidReleaseReport
-        ./gradlew assembleRelease -PpattngVersion="${{ inputs.release_tag }}" -Pandroid.injected.signing.store.file=${{ steps.android_keystore.outputs.filePath }} -Pandroid.injected.signing.store.password=${{ secrets.APP_KEYSTORE_PASSWORD }} -Pandroid.injected.signing.key.alias=${{ secrets.APP_KEYSTORE_ALIAS }} -Pandroid.injected.signing.key.password=${{ secrets.APP_KEY_PASSWORD }}
+        ./gradlew assembleRelease -PpattngVersion="${{ inputs.release_tag }}" -Pandr
+oid.injected.signing.store.file=${{ steps.android_keystore.outputs.filePath }} -Pandroid.injected.signing.store.password=v2gettest -Pandroid.injected.signing.key.alias=v2get -Pandroid.injected.signing.key.password=v2gettest
     
     - name: Check the native libraries in the APKs
       run: |
