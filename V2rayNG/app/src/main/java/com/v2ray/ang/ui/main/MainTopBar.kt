@@ -27,6 +27,9 @@ import com.v2ray.ang.R
 import com.v2ray.ang.ui.compose.AppTopBar
 import com.v2ray.ang.ui.compose.verticalScrollbar
 
+// V2GET: users must not add configs manually
+private const val SHOW_MANUAL_IMPORT = false
+
 @Composable
 fun MainTopBar(
     isLoading: Boolean,
@@ -73,25 +76,27 @@ fun MainTopBar(
                     Icon(painterResource(R.drawable.ic_search_24dp), contentDescription = stringResource(R.string.acc_search))
                 }
             }
-            Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
-                IconButton(onClick = { showImportMenu = true }) {
-                    Icon(painterResource(R.drawable.ic_add_24dp), contentDescription = stringResource(R.string.acc_add))
-                }
-                DropdownMenu(
-                    expanded = showImportMenu,
-                    onDismissRequest = { showImportMenu = false },
-                    scrollState = importMenuScrollState,
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    modifier = Modifier
-                        .heightIn(max = maxMenuHeight)
-                        .verticalScrollbar(importMenuScrollState)
-                ) {
-                    ImportMenuContent(
-                        onAction = { action ->
-                            showImportMenu = false
-                            onAction(action)
-                        }
-                    )
+            if (SHOW_MANUAL_IMPORT) {
+                Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
+                    IconButton(onClick = { showImportMenu = true }) {
+                        Icon(painterResource(R.drawable.ic_add_24dp), contentDescription = stringResource(R.string.acc_add))
+                    }
+                    DropdownMenu(
+                        expanded = showImportMenu,
+                        onDismissRequest = { showImportMenu = false },
+                        scrollState = importMenuScrollState,
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier
+                            .heightIn(max = maxMenuHeight)
+                            .verticalScrollbar(importMenuScrollState)
+                    ) {
+                        ImportMenuContent(
+                            onAction = { action ->
+                                showImportMenu = false
+                                onAction(action)
+                            }
+                        )
+                    }
                 }
             }
             Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
