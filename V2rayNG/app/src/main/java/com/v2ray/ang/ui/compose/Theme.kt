@@ -32,7 +32,7 @@ private val LightColor = lightColorScheme(
     onPrimary = Color(0xFFFFFFFF),
     primaryContainer = Color(0xFFFFEBF0),
     onPrimaryContainer = Color(0xFF3B0A18),
-    secondary = Color(0xFFC71F66)
+    secondary = Color(0xFFC71F66),
     onSecondary = Color(0xFFFFFFFF), // White
     secondaryContainer = Color(0xFFFFE8D6), // Pale Orange
     onSecondaryContainer = Color(0xFF2B1700), // Dark Brown
@@ -46,7 +46,7 @@ private val LightColor = lightColorScheme(
     onErrorContainer = Color(0xFF410002), // Dark Red
     background = Color(0xFFFDF8FF), // pearl
     onBackground = Color(0xFF1E1A22),
-    surface = Color(0xFFFDF8FF)
+    surface = Color(0xFFFDF8FF),
     onSurface = Color(0xFF1C1B1F), // Near Black
     surfaceVariant = Color(0xFFE7E0EC), // Light Purple Gray
     onSurfaceVariant = Color(0xFF49454F), // Dark Gray
@@ -61,7 +61,7 @@ private val LightColor = lightColorScheme(
     surfaceContainerLow = Color(0xFFFBF3FF),
     surfaceContainer = Color(0xFFF7F1FF),
     surfaceContainerHigh = Color(0xFFF3EAFB),
-    surfaceContainerHighest = Color(0xFFEFE4F7)
+    surfaceContainerHighest = Color(0xFFEFE4F7),
 )
 
 private val DarkColor = darkColorScheme(
