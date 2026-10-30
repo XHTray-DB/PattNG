@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- V2GET screens are Persian-only, so none of these is offered for translation. -->
+<resources>
+    <string name="v2get_brand" translatable="false">V2GET</string>
+    <string name="v2get_tagline" translatable="false">اینترنت آزاد و پرسرعت</string>
+
+    <string name="v2get_login_subtitle" translatable="false">ورود به شبکه اختصاصی و پرسرعت</string>
+    <string name="v2get_login_username" translatable="false">نام کاربری</string>
+    <string name="v2get_login_password" translatable="false">رمز عبور</string>
+    <string name="v2get_login_submit" translatable="false">ورود و فعال‌سازی اشتراک</string>
+    <string name="v2get_login_empty" translatable="false">نام کاربری و رمز عبور را وارد کنید</string>
+    <string name="v2get_login_no_server" translatable="false">آدرس سرور در این نسخه تنظیم نشده است</string>
+    <string name="v2get_login_bad_credentials" translatable="false">نام کاربری یا رمز عبور نامعتبر است.</string>
+    <string name="v2get_login_server_error" translatable="false">خطای سرور: %1$d</string>
+    <string name="v2get_login_network_error" translatable="false">اتصال به سرور برقرار نشد.</string>
+    <string name="v2get_login_bad_response" translatable="false">پاسخ سرور قابل خواندن نیست.</string>
+    <string name="v2get_login_bad_core" translatable="false">تنظیمات هسته‌ی دریافتی از سرور معتبر نیست.</string>
+
+    <string name="v2get_default_user" translatable="false">کاربر ویژه</string>
+    <string name="v2get_quota_remaining" translatable="false">سهمیه باقیمانده</string>
+    <string name="v2get_gigabytes" translatable="false">%1$s گیگابایت</string>
+    <string name="v2get_core_badge" translatable="false">Aether Core Shield</string>
+    <string name="v2get_status_disconnected" translatable="false">لمس برای اتصال</string>
+    <string name="v2get_status_connecting" translatable="false">در حال اتصال…</string>
+    <string name="v2get_status_connected" translatable="false">متصل شدید</string>
+    <string name="v2get_connect_action" translatable="false">اتصال به V2GET</string>
+    <string name="v2get_disconnect_action" translatable="false">قطع اتصال V2GET</string>
+    <string name="v2get_protocol_title" translatable="false">پروتکل امن</string>
+    <string name="v2get_protocol_value" translatable="false">MASQUE / H2</string>
+    <string name="v2get_state_title" translatable="false">وضعیت</string>
+    <string name="v2get_state_ready" translatable="false">آماده</string>
+    <string name="v2get_state_active" translatable="false">فعال</string>
+    <string name="v2get_nav_connect" translatable="false">اتصال</string>
+    <string name="v2get_nav_account" translatable="false">سهمیه و اکانت</string>
+    <string name="v2get_quota_exhausted" translatable="false">سهمیه‌ی حجم شما تمام شده است.</string>
+    <string name="v2get_subscription_expired" translatable="false">اعتبار زمانی اشتراک شما به پایان رسیده است.</string>
+    <string name="v2get_start_failure" translatable="false">اتصال برقرار نشد: %1$s</string>
+
+    <string name="v2get_account_title" translatable="false">حساب کاربری و سهمیه حجم</string>
+    <string name="v2get_account_back" translatable="false">بازگشت</string>
+    <string name="v2get_account_used" translatable="false">مصرف شده: %1$s گیگ</string>
+    <string name="v2get_account_remaining" translatable="false">باقیمانده: %1$s گیگ</string>
+    <string name="v2get_account_plan_label" translatable="false">نوع اشتراک</string>
+    <string name="v2get_account_plan_value" translatable="false">شبکه اختصاصی Aether Turbo</string>
+    <string name="v2get_account_expires_label" translatable="false">اعتبار زمانی تا</string>
+    <string name="v2get_account_quota_label" translatable="false">سقف مجاز حجم</string>
+    <string name="v2get_account_logout" translatable="false">خروج از این حساب کاربری</string>
+</resources>

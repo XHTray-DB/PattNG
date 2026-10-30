@@ -9,6 +9,7 @@ on:
   push:
     branches:
       - master
+      - my-releases
 
 permissions:
   contents: write
@@ -194,7 +195,7 @@ jobs:
         # build before anything is assembled or signed.
         ./gradlew :app:testPlaystoreDebugUnitTest
         ./gradlew licenseFdroidReleaseReport
-        ./gradlew assembleRelease -PpattngVersion="${{ inputs.release_tag }}" -Pandroid.injected.signing.store.file=${{ steps.android_keystore.outputs.filePath }} -Pandroid.injected.signing.store.password=v2gettest -Pandroid.injected.signing.key.alias=v2get -Pandroid.injected.signing.key.password=v2gettest
+        ./gradlew assembleRelease -PpattngVersion="${{ inputs.release_tag }}" -Pv2getApiUrl="${{ vars.V2GET_API_URL }}" -Pandroid.injected.signing.store.file=${{ steps.android_keystore.outputs.filePath }} -Pandroid.injected.signing.store.password=v2gettest -Pandroid.injected.signing.key.alias=v2get -Pandroid.injected.signing.key.password=v2gettest
     
     - name: Check the native libraries in the APKs
       run: |

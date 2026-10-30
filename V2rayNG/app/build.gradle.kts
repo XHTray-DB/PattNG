@@ -16,6 +16,11 @@ android {
         versionCode = 753
         versionName = (project.findProperty("pattngVersion") as? String)?.takeIf { it.isNotBlank() } ?: "2.3.13"
 
+        // V2GET: the base URL of the subscription panel the login screen talks to; set the V2GET_API_URL
+        // repository variable (or -Pv2getApiUrl) before building a release.
+        val v2getApiUrl = (project.findProperty("v2getApiUrl") as? String)?.trim().orEmpty()
+        buildConfigField("String", "V2GET_API_URL", "\"$v2getApiUrl\"")
+
         val abiFilterList = (properties["ABI_FILTERS"] as? String)?.split(';')
         splits {
             abi {
