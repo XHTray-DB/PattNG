@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Strings of the redesigned V2GET screens; Persian-only, so none is offered for translation. -->
+<resources>
+    <string name="v2get_client_subtitle" translatable="false">کلاینت اختصاصی V2GET</string>
+    <string name="v2get_nav_servers" translatable="false">سرورها</string>
+    <string name="v2get_nav_account_short" translatable="false">اکانت و ترافیک</string>
+    <string name="v2get_nav_settings" translatable="false">تنظیمات</string>
+    <string name="v2get_top_connected" translatable="false">متصل</string>
+    <string name="v2get_top_disconnected" translatable="false">قطع</string>
+    <string name="v2get_open_account" translatable="false">حساب کاربری</string>
+
+    <string name="v2get_conn_connected_title" translatable="false">متصل است</string>
+    <string name="v2get_conn_connecting_title" translatable="false">در حال اتصال…</string>
+    <string name="v2get_conn_disconnected_title" translatable="false">متصل نیستید</string>
+    <string name="v2get_conn_connected_sub" translatable="false">تونل رمزنگاری‌شده فعال و ایمن</string>
+    <string name="v2get_conn_connecting_sub" translatable="false">در حال برقراری تونل امن</string>
+    <string name="v2get_conn_disconnected_sub" translatable="false">برای شروع، دکمهٔ اتصال را لمس کنید</string>
+    <string name="v2get_power_connect" translatable="false">اتصال</string>
+    <string name="v2get_power_connecting" translatable="false">لغو اتصال</string>
+    <string name="v2get_power_stop" translatable="false">متوقف کردن</string>
+
+    <string name="v2get_download" translatable="false">دانلود</string>
+    <string name="v2get_upload" translatable="false">آپلود</string>
+    <string name="v2get_unit_mbps" translatable="false">MB/s</string>
+    <string name="v2get_no_value" translatable="false">--</string>
+    <string name="v2get_server_name" translatable="false">V2GET Cloud Aether</string>
+    <string name="v2get_server_detail" translatable="false">Aether MASQUE Turbo</string>
+    <string name="v2get_duration" translatable="false">مدت زمان اتصال</string>
+    <string name="v2get_tunnel_mode" translatable="false">وضعیت هستهٔ تونل</string>
+    <string name="v2get_tunnel_vpn" translatable="false">VPN (TUN)</string>
+    <string name="v2get_tunnel_proxy" translatable="false">پروکسی</string>
+
+    <string name="v2get_servers_filter_all" translatable="false">همه سرورها (۱)</string>
+    <string name="v2get_servers_filter_aether" translatable="false">Aether MASQUE</string>
+    <string name="v2get_servers_best" translatable="false">گره برتر مسیریابی</string>
+    <string name="v2get_servers_recommended" translatable="false">پیشنهادی</string>
+    <string name="v2get_servers_protocol" translatable="false">پروتکل:</string>
+    <string name="v2get_servers_connected_default" translatable="false">متصل و نود پیش‌فرض</string>
+    <string name="v2get_servers_connect_here" translatable="false">اتصال به این سرور</string>
+    <string name="v2get_servers_disconnect_here" translatable="false">قطع اتصال</string>
+    <string name="v2get_servers_unlimited" translatable="false">سرور اختصاصی اشتراک شما</string>
+    <string name="v2get_failover_title" translatable="false">پروتکل محافظ سوییچ هوشمند (Zero-Drop)</string>
+    <string name="v2get_failover_body" translatable="false">سرورها بر اساس تنظیمات حساب شما از طرف پنل تعیین می‌شوند.</string>
+
+    <string name="v2get_account_vip" translatable="false">کاربر VIP</string>
+    <string name="v2get_account_sub_active" translatable="false">اشتراک ویژه V2GET</string>
+    <string name="v2get_account_active" translatable="false">فعال</string>
+    <string name="v2get_account_inactive" translatable="false">غیرفعال</string>
+    <string name="v2get_account_copy" translatable="false">کپی</string>
+    <string name="v2get_account_days_left" translatable="false">%1$d روز مانده</string>
+    <string name="v2get_account_expired_badge" translatable="false">منقضی شده</string>
+    <string name="v2get_account_expires_on" translatable="false">انقضا: %1$s</string>
+    <string name="v2get_account_no_expiry" translatable="false">بدون تاریخ انقضا</string>
+    <string name="v2get_account_quota_cycle" translatable="false">سهمیه ترافیک دوره</string>
+    <string name="v2get_account_total_quota" translatable="false">کل سهمیه مجاز</string>
+    <string name="v2get_account_remaining_volume" translatable="false">حجم باقی‌مانده</string>
+    <string name="v2get_account_used_percent" translatable="false">مصرف شده</string>
+    <string name="v2get_account_gb_used" translatable="false">%1$s GB USED</string>
+    <string name="v2get_account_gb_total" translatable="false">%1$s GB TOTAL</string>
+    <string name="v2get_account_unlimited" translatable="false">نامحدود</string>
+    <string name="v2get_account_id_label" translatable="false">شناسه حساب</string>
+
+    <string name="v2get_settings_title" translatable="false">تنظیمات</string>
+    <string name="v2get_settings_subtitle" translatable="false">پیکربندی هوشمند ارتباط و مدیریت شبکه تونل</string>
+    <string name="v2get_settings_core_section" translatable="false">هستهٔ فعال</string>
+    <string name="v2get_settings_core_title" translatable="false">هستهٔ Aether</string>
+    <string name="v2get_settings_core_body" translatable="false">هسته و پارامترهای اتصال به‌صورت خودکار از پنل حساب شما دریافت می‌شود.</string>
+    <string name="v2get_settings_network_section" translatable="false">تنظیمات کاربردی شبکه</string>
+    <string name="v2get_settings_soon" translatable="false">به‌زودی</string>
+    <string name="v2get_settings_split_title" translatable="false">تونل‌بندی انتخابی (Split Tunneling)</string>
+    <string name="v2get_settings_split_body" translatable="false">مستثنی کردن اپلیکیشن‌های بانکی و سرویس‌های داخلی از تونل</string>
+    <string name="v2get_settings_kill_title" translatable="false">قطع سراسری اینترنت (Kill Switch)</string>
+    <string name="v2get_settings_kill_body" translatable="false">مسدودسازی هوشمند ترافیک در صورت قطع موقت اتصال تونل</string>
+    <string name="v2get_settings_drop_title" translatable="false">سوییچ خودکار بدون قطعی (Zero-Drop)</string>
+    <string name="v2get_settings_drop_body" translatable="false">انتقال آنی به سرور رزرو هنگام افت شدید پکت یا مسدودی پورت</string>
+    <string name="v2get_settings_dns_title" translatable="false">پیشگیری از نشت دی‌ان‌اس (DNS Leak)</string>
+    <string name="v2get_settings_dns_body" translatable="false">رمزنگاری سرتاسری درخواست‌های سامانه نام دامنه</string>
+    <string name="v2get_settings_about_section" translatable="false">دربارهٔ برنامه و مجوزها</string>
+    <string name="v2get_settings_version" translatable="false">V2GET نسخه اندروید</string>
+    <string name="v2get_settings_version_value" translatable="false">نسخه %1$s</string>
+    <string name="v2get_settings_licenses" translatable="false">مجوزهای متن‌باز: AGPL / MPL / MIT / GPL</string>
+
+    <string name="v2get_login_top" translatable="false">V2GET Login</string>
+    <string name="v2get_login_badge" translatable="false">احراز هویت کلاینت</string>
+    <string name="v2get_login_headline" translatable="false">ورود به حساب اختصاصی</string>
+    <string name="v2get_login_headline_sub" translatable="false">اتصال مستقیم و پرسرعت به نودهای ابری رمزنگاری‌شده با شناسهٔ کاربری اختصاصی</string>
+    <string name="v2get_login_tab_user" translatable="false">نام کاربری و رمز</string>
+    <string name="v2get_login_tab_license" translatable="false">لینک ساب / لایسنس</string>
+    <string name="v2get_login_license_soon" translatable="false">این بخش به‌زودی فعال خواهد شد</string>
+    <string name="v2get_login_field_user" translatable="false">نام کاربری</string>
+    <string name="v2get_login_field_user_hint" translatable="false">نام کاربری خود را وارد کنید</string>
+    <string name="v2get_login_field_pass" translatable="false">رمز عبور اختصاصی</string>
+    <string name="v2get_login_show_pass" translatable="false">نمایش رمز</string>
+    <string name="v2get_login_hide_pass" translatable="false">پنهان کردن رمز</string>
+    <string name="v2get_login_secure_title" translatable="false">ورود امن</string>
+    <string name="v2get_login_secure_body" translatable="false">رمز عبور فقط روی اتصال HTTPS به سرور ارسال می‌شود.</string>
+    <string name="v2get_login_cta" translatable="false">ورود و اتصال به شبکه V2GET</string>
+    <string name="v2get_login_support" translatable="false">دریافت اکانت یا پشتیبانی از طریق تلگرام</string>
+    <string name="v2get_login_footer" translatable="false">V2GET • طراحی‌شده برای پایداری حداکثری و دور زدن فیلترینگ</string>
+</resources>
