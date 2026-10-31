@@ -1,0 +1,13 @@
+name = "v2get-api"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+# Create the namespace first:  npx wrangler kv namespace create V2GET_KV
+[[kv_namespaces]]
+binding = "V2GET_KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[vars]
+AETHER_COMMAND = "--masque -4 --scan turbo --noize firewall"
+
+# Secret (never written here):  npx wrangler secret put ADMIN_SECRET
