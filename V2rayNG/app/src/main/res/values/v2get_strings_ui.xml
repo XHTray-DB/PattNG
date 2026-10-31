@@ -56,7 +56,7 @@
     <string name="v2get_account_total_quota" translatable="false">کل سهمیه مجاز</string>
     <string name="v2get_account_remaining_volume" translatable="false">حجم باقی‌مانده</string>
     <string name="v2get_account_used_percent" translatable="false">مصرف شده</string>
-    <string name="v2get_account_gb_used" translatable="false">%1$s GB USED</string>
+    <string name="v2get_account_gb_used" translatable="false">%1$s USED</string>
     <string name="v2get_account_gb_total" translatable="false">%1$s GB TOTAL</string>
     <string name="v2get_account_unlimited" translatable="false">نامحدود</string>
     <string name="v2get_account_id_label" translatable="false">شناسه حساب</string>

@@ -82,4 +82,32 @@ class V2GetViewModelTest {
         assertEquals("a", V2GetViewModel.bestServer(servers, emptyMap(), emptyMap()))
         assertEquals(null, V2GetViewModel.bestServer(emptyList(), emptyMap(), emptyMap()))
     }
+
+    @Test
+    fun theRealTestGoesFastestTcpFirstAndUdpServersLast() {
+        val servers = listOf(server("a"), server("b"), server("h", "HYSTERIA2"), server("c"), server("dead"))
+        val tcp = mapOf("a" to 90L, "b" to 20L, "c" to 55L, "dead" to -1L)
+        assertEquals(listOf("b", "c", "a", "h"), V2GetViewModel.realTestOrder(servers, tcp))
+    }
+
+    @Test
+    fun whenEveryTcpTestFailedEveryServerStillGetsTheRealTestInListOrder() {
+        val servers = listOf(server("a"), server("b"))
+        assertEquals(listOf("a", "b"), V2GetViewModel.realTestOrder(servers, mapOf("a" to -1L, "b" to -1L)))
+    }
+
+    @Test
+    fun theReplacementIsTheFastestServerThatWorkedAndNeverOneThatFailed() {
+        val servers = listOf(server("a"), server("b"), server("c"))
+        val delays = mapOf("a" to -1L, "b" to 300L, "c" to 120L)
+        assertEquals("c", V2GetViewModel.nextAlternative(servers, setOf("a"), delays))
+        assertEquals("b", V2GetViewModel.nextAlternative(servers, setOf("a", "c"), delays))
+    }
+
+    @Test
+    fun withoutAnyTestResultTheReplacementIsTheFirstServerNotFailed() {
+        val servers = listOf(server("a"), server("b"))
+        assertEquals("b", V2GetViewModel.nextAlternative(servers, setOf("a"), emptyMap()))
+        assertEquals(null, V2GetViewModel.nextAlternative(servers, setOf("a", "b"), emptyMap()))
+    }
 }

@@ -32,6 +32,15 @@ data class V2GetSession(
             )
         }
 
+        /**
+         * The account as the screens show it: the panel's figure plus what this phone counted since, so that the
+         * usage is the app's own count, up to date at once, and the panel only corrects its base. Read in any process.
+         */
+        fun loadLive(): V2GetSession? {
+            val session = load() ?: return null
+            return session.copy(usedBytes = session.usedBytes + V2GetTraffic.unconfirmedBytes())
+        }
+
         fun save(session: V2GetSession) {
             MmkvManager.encodeSettings(KEY_USERNAME, session.username)
             MmkvManager.encodeSettings(KEY_QUOTA, session.quotaBytes)

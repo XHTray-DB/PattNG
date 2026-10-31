@@ -44,6 +44,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -56,8 +57,13 @@ class V2GetAccountViewModel : ViewModel() {
 
     init {
         viewModelScope.launch {
-            val session = withContext(Dispatchers.IO) { V2GetSession.load() }
-            _state.value = V2GetAccountState(session = session)
+            // Read again every second: while a connection runs the usage is counted in the app and grows with it.
+            while (true) {
+                val session = withContext(Dispatchers.IO) { V2GetSession.loadLive() }
+                if (_state.value.loggedOut) break
+                _state.value = V2GetAccountState(session = session)
+                delay(1_000L)
+            }
         }
     }
 
@@ -79,15 +85,17 @@ class V2GetAccountActivity : BaseComponentActivity() {
         LaunchedEffect(state.loggedOut) {
             if (state.loggedOut) finish()
         }
-        AccountScreen(
-            state = state,
-            onBack = ::finish,
-            onLogout = {
-                // The core of the account goes first: a tunnel left running would outlive the profile it was built from.
-                LauncherManager.stopService(this)
-                viewModel.logout()
-            },
-        )
+        V2GetThemeHost(rtl = false) {
+            AccountScreen(
+                state = state,
+                onBack = ::finish,
+                onLogout = {
+                    // The core of the account goes first: a tunnel left running would outlive the profile it was built from.
+                    LauncherManager.stopService(this)
+                    viewModel.logout()
+                },
+            )
+        }
     }
 
     @Composable
@@ -95,8 +103,8 @@ class V2GetAccountActivity : BaseComponentActivity() {
         val scheme = MaterialTheme.colorScheme
         val session = state.session
         val totalGb = session?.let { V2GetQuota.toGigabytes(it.quotaBytes) } ?: 0.0
-        val usedGb = session?.let { V2GetQuota.toGigabytes(it.usedBytes) } ?: 0.0
-        val remainingGb = session?.let { V2GetQuota.toGigabytes(V2GetQuota.remainingBytes(it)) } ?: 0.0
+        val usedText = V2GetQuota.formatBytes(session?.usedBytes ?: 0L)
+        val remainingText = V2GetQuota.formatBytes(session?.let { V2GetQuota.remainingBytes(it) } ?: 0L)
         val unlimited = session != null && session.quotaBytes <= 0
 
         Column(
@@ -151,12 +159,12 @@ class V2GetAccountActivity : BaseComponentActivity() {
                     Spacer(Modifier.height(16.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(
-                            stringResource(R.string.v2get_account_used, "%.1f".format(usedGb)),
+                            stringResource(R.string.v2get_account_used, usedText),
                             fontSize = 13.sp,
                             color = scheme.onSurfaceVariant,
                         )
                         Text(
-                            stringResource(R.string.v2get_account_remaining, if (unlimited) "∞" else "%.1f".format(remainingGb)),
+                            stringResource(R.string.v2get_account_remaining, if (unlimited) "∞" else remainingText),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                         )

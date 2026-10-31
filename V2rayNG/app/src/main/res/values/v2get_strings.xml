@@ -38,8 +38,8 @@
 
     <string name="v2get_account_title" translatable="false">حساب کاربری و سهمیه حجم</string>
     <string name="v2get_account_back" translatable="false">بازگشت</string>
-    <string name="v2get_account_used" translatable="false">مصرف شده: %1$s گیگ</string>
-    <string name="v2get_account_remaining" translatable="false">باقیمانده: %1$s گیگ</string>
+    <string name="v2get_account_used" translatable="false">مصرف شده: %1$s</string>
+    <string name="v2get_account_remaining" translatable="false">باقیمانده: %1$s</string>
     <string name="v2get_account_plan_label" translatable="false">نوع اشتراک</string>
     <string name="v2get_account_plan_value" translatable="false">شبکه اختصاصی Aether Turbo</string>
     <string name="v2get_account_expires_label" translatable="false">اعتبار زمانی تا</string>

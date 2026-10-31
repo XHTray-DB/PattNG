@@ -19,6 +19,20 @@ object V2GetQuota {
     fun toGigabytes(bytes: Long): Double = bytes / BYTES_PER_GB
 
     /**
+     * A byte count in the unit that reads best, in the same binary units the quota is counted in (1 GB is 1024^3 bytes),
+     * with enough digits that a small use shows: 48.9 MB, 1.23 GB. Never rounds a use up to a whole gigabyte.
+     */
+    fun formatBytes(bytes: Long): String {
+        val value = bytes.coerceAtLeast(0L)
+        return when {
+            value >= 1024L * 1024 * 1024 -> String.format(java.util.Locale.US, "%.2f GB", value / BYTES_PER_GB)
+            value >= 1024L * 1024 -> String.format(java.util.Locale.US, "%.1f MB", value / (1024.0 * 1024.0))
+            value >= 1024L -> String.format(java.util.Locale.US, "%d KB", value / 1024L)
+            else -> String.format(java.util.Locale.US, "%d B", value)
+        }
+    }
+
+    /**
      * Why a connection should not start. A quota of 0 means the panel set no limit; an expiry that is not
      * an ISO date (yyyy-MM-dd, optionally followed by a time) is not enforced here, the panel decides then.
      */

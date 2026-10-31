@@ -128,7 +128,7 @@ fun ConnectTab(state: V2GetUiState, vpnMode: Boolean, onToggle: () -> Unit, onCh
         PowerButton(connection, onToggle)
         Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Pill(protocolText, Color.White, V2G.Ink, mono = true)
+            Pill(protocolText, V2G.Surface, V2G.Ink, mono = true)
             Pill(
                 stringResource(
                     when (connection) {
@@ -290,10 +290,10 @@ private fun PowerButton(connection: V2GetConnection, onToggle: () -> Unit) {
                 .size(260.dp)
                 .shadow(18.dp, CircleShape, ambientColor = V2G.Pink, spotColor = V2G.Hot)
                 .clip(CircleShape)
-                .background(Brush.linearGradient(listOf(Color(0xFFFF9AAE), V2G.Hot)))
+                .background(Brush.linearGradient(listOf(Color(0xFFFF9AAE), V2G.HotDeep)))
                 .padding(10.dp)
                 .clip(CircleShape)
-                .background(Brush.radialGradient(listOf(Color.White, Color(0xFFFFE9F0))))
+                .background(Brush.radialGradient(listOf(V2G.Surface, V2G.ButtonFace)))
                 .clickable(onClickLabel = actionLabel, role = Role.Button, onClick = onToggle),
             contentAlignment = Alignment.Center,
         ) {
@@ -301,7 +301,7 @@ private fun PowerButton(connection: V2GetConnection, onToggle: () -> Unit) {
                 Modifier
                     .size(184.dp)
                     .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.8f))
+                    .background(V2G.Surface.copy(alpha = 0.8f))
                     .border(1.dp, V2G.Border, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
@@ -389,7 +389,7 @@ fun ServersTab(state: V2GetUiState, onConnect: (String) -> Unit, onDisconnect: (
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.clip(RoundedCornerShape(50))
-                    .background(if (allOn) V2G.SoftBrandBrush else Brush.linearGradient(listOf(Color.White, Color.White)))
+                    .background(if (allOn) V2G.SoftBrandBrush else Brush.linearGradient(listOf(V2G.Surface, V2G.Surface)))
                     .clickable { filter = null }
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             )
@@ -401,7 +401,7 @@ fun ServersTab(state: V2GetUiState, onConnect: (String) -> Unit, onDisconnect: (
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.clip(RoundedCornerShape(50))
-                        .background(if (on) V2G.SoftBrandBrush else Brush.linearGradient(listOf(Color.White, Color.White)))
+                        .background(if (on) V2G.SoftBrandBrush else Brush.linearGradient(listOf(V2G.Surface, V2G.Surface)))
                         .clickable { filter = family }
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 )
@@ -447,7 +447,7 @@ fun ServersTab(state: V2GetUiState, onConnect: (String) -> Unit, onDisconnect: (
                     ) {
                         Text(stringResource(R.string.v2get_servers_protocol), fontSize = 12.sp, color = V2G.Muted)
                         Spacer(Modifier.width(8.dp))
-                        Pill(server.protocol.ifBlank { stringResource(R.string.v2get_protocol_value) }, Color.White, V2G.Rose, mono = true)
+                        Pill(server.protocol.ifBlank { stringResource(R.string.v2get_protocol_value) }, V2G.Surface, V2G.Rose, mono = true)
                     }
                     Spacer(Modifier.height(14.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -499,8 +499,8 @@ fun ServersTab(state: V2GetUiState, onConnect: (String) -> Unit, onDisconnect: (
 fun AccountTab(session: V2GetSession?, onCopyId: (String) -> Unit, onLogout: () -> Unit) {
     val unlimited = session != null && session.quotaBytes <= 0
     val totalGb = session?.let { V2GetQuota.toGigabytes(it.quotaBytes) } ?: 0.0
-    val usedGb = session?.let { V2GetQuota.toGigabytes(it.usedBytes) } ?: 0.0
-    val remainingGb = session?.let { V2GetQuota.toGigabytes(V2GetQuota.remainingBytes(it)) } ?: 0.0
+    val usedText = V2GetQuota.formatBytes(session?.usedBytes ?: 0L)
+    val remainingText = V2GetQuota.formatBytes(session?.let { V2GetQuota.remainingBytes(it) } ?: 0L)
     val fraction = session?.let { V2GetQuota.usedFraction(it) } ?: 0f
     val block = session?.let { V2GetQuota.blockReason(it) } ?: V2GetQuota.Block.NONE
     val active = session != null && block == V2GetQuota.Block.NONE
@@ -544,7 +544,7 @@ fun AccountTab(session: V2GetSession?, onCopyId: (String) -> Unit, onLogout: () 
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(Color.White)
+                                .background(V2G.Surface)
                                 .clickable(role = Role.Button) { onCopyId(accountId) }
                                 .padding(horizontal = 10.dp, vertical = 6.dp),
                         ) {
@@ -600,7 +600,7 @@ fun AccountTab(session: V2GetSession?, onCopyId: (String) -> Unit, onLogout: () 
                         Spacer(Modifier.height(12.dp))
                         Text(stringResource(R.string.v2get_account_remaining_volume), fontSize = 12.sp, color = V2G.Muted)
                         Text(
-                            if (unlimited) "∞" else stringResource(R.string.v2get_gigabytes, gb(remainingGb)),
+                            if (unlimited) "∞" else remainingText,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Black,
                             color = V2G.Magenta,
@@ -610,7 +610,7 @@ fun AccountTab(session: V2GetSession?, onCopyId: (String) -> Unit, onLogout: () 
                 }
                 Spacer(Modifier.height(16.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(stringResource(R.string.v2get_account_gb_used, gb(usedGb)), fontSize = 11.sp, fontFamily = V2G.Mono, color = V2G.Muted)
+                    Text(stringResource(R.string.v2get_account_gb_used, usedText), fontSize = 11.sp, fontFamily = V2G.Mono, color = V2G.Muted)
                     if (!unlimited) {
                         Text(stringResource(R.string.v2get_account_gb_total, "%.0f".format(totalGb)), fontSize = 11.sp, fontFamily = V2G.Mono, color = V2G.Muted)
                     }
@@ -634,7 +634,7 @@ fun AccountTab(session: V2GetSession?, onCopyId: (String) -> Unit, onLogout: () 
             onClick = onLogout,
             shape = RoundedCornerShape(18.dp),
             border = androidx.compose.foundation.BorderStroke(1.dp, V2G.Border),
-            colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White),
+            colors = ButtonDefaults.outlinedButtonColors(containerColor = V2G.Surface),
             modifier = Modifier.fillMaxWidth().height(54.dp),
         ) {
             V2Icon(R.drawable.ic_v2g_logout, V2G.Rose, 20.dp)
@@ -669,7 +669,7 @@ private fun UsageDonut(fraction: Float) {
             )
             if (fraction > 0f) {
                 drawArc(
-                    brush = Brush.sweepGradient(listOf(V2G.Pink, V2G.Hot, V2G.Magenta, V2G.Pink)),
+                    brush = Brush.sweepGradient(listOf(V2G.Pink, V2G.HotDeep, V2G.MagentaDeep, V2G.Pink)),
                     startAngle = -90f,
                     sweepAngle = 360f * fraction,
                     useCenter = false,
@@ -719,7 +719,7 @@ fun SettingsTab(
         SectionTitle(R.string.v2get_settings_core_section, R.drawable.ic_v2g_bolt)
         GlassCard(Modifier.fillMaxWidth()) {
             Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconBox(R.drawable.ic_v2g_bolt, tint = Color.White, background = V2G.Magenta, size = 48.dp)
+                IconBox(R.drawable.ic_v2g_bolt, tint = Color.White, background = V2G.MagentaDeep, size = 48.dp)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(stringResource(R.string.v2get_settings_core_title), fontSize = 16.sp, fontWeight = FontWeight.Black, color = V2G.Ink)

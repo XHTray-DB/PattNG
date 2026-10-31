@@ -44,4 +44,22 @@ class V2GetQuotaTest {
         assertEquals(1f, V2GetQuota.usedFraction(session(100, 250, "")))
         assertEquals(0.1f, V2GetQuota.usedFraction(session(100, 10, "")))
     }
+
+    @Test
+    fun aSmallUseShowsInMegabytesNotAsAWholeGigabyte() {
+        // 40 MB down and 10 MB up: the screen must read about 50 MB, never 0.0 or 0.1 GB.
+        val fiftyMb = 50L * 1024 * 1024
+        assertEquals("50.0 MB", V2GetQuota.formatBytes(fiftyMb))
+        assertEquals("1.50 GB", V2GetQuota.formatBytes(1536L * 1024 * 1024))
+        assertEquals("900 KB", V2GetQuota.formatBytes(900L * 1024))
+        assertEquals("12 B", V2GetQuota.formatBytes(12))
+        assertEquals("0 B", V2GetQuota.formatBytes(-5))
+    }
+
+    @Test
+    fun theRemainingVolumeShrinksByTheBytesUsed() {
+        val gb = 1024L * 1024 * 1024
+        val fiftyMb = 50L * 1024 * 1024
+        assertEquals(50 * gb - fiftyMb, V2GetQuota.remainingBytes(session(50 * gb, fiftyMb, "")))
+    }
 }

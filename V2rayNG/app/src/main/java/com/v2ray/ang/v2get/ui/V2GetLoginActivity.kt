@@ -24,12 +24,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,14 +38,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
@@ -129,10 +125,7 @@ class V2GetLoginActivity : BaseComponentActivity() {
             }
         }
         // The design is written right to left, and the screens are Persian-only.
-        CompositionLocalProvider(
-            LocalLayoutDirection provides LayoutDirection.Rtl,
-            LocalContentColor provides V2G.Ink,
-        ) {
+        V2GetThemeHost {
             LoginScreen(state = state, onSubmit = viewModel::login)
         }
     }
@@ -356,6 +349,7 @@ class V2GetLoginActivity : BaseComponentActivity() {
                 disabledContainerColor = V2G.LilacSoft,
                 focusedTextColor = V2G.Ink,
                 unfocusedTextColor = V2G.Ink,
+                disabledTextColor = V2G.Muted,
                 focusedIndicatorColor = Color.Transparent,
                 unfocusedIndicatorColor = Color.Transparent,
                 disabledIndicatorColor = Color.Transparent,

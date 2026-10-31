@@ -31,8 +31,11 @@ object V2GetTraffic {
 
     private const val KEY_LIVE = "V2GET_LIVE_TRAFFIC"
 
+    /** What the core counted and has not yet been written into a report; the screens add it to the panel's figure. */
+    private const val KEY_UNREPORTED = "V2GET_UNREPORTED_BYTES"
+
     /** A connection's usage is sent to the panel at least this often, so a long connection, or one the system kills, is not lost. */
-    private const val REPORT_INTERVAL_NANOS = 60_000_000_000L
+    private const val REPORT_INTERVAL_NANOS = 15_000_000_000L
 
     /** The figures of the running connection: bytes used so far and the speed in bytes per second. */
     data class Live(val up: Long = 0, val down: Long = 0, val upSpeed: Long = 0, val downSpeed: Long = 0)
@@ -41,6 +44,7 @@ object V2GetTraffic {
     fun statsNeeded(): Boolean = V2GetAuthManager.isLoggedIn()
 
     /** A connection of the V2GET account starts: counting begins from zero. */
+    @Synchronized
     fun begin(selectedGuid: String?) {
         up.set(0)
         down.set(0)
@@ -50,6 +54,7 @@ object V2GetTraffic {
         lastAddNanos = System.nanoTime()
         lastReportNanos = lastAddNanos
         writeLive(Live())
+        writeUnreported(0)
         sessionId = if (V2GetConfigSource.isV2GetGuid(selectedGuid) && V2GetAuthManager.isLoggedIn()) {
             UUID.randomUUID().toString().replace("-", "")
         } else {
@@ -57,6 +62,7 @@ object V2GetTraffic {
         }
     }
 
+    @Synchronized
     fun add(stats: List<OutboundTrafficStat>) {
         if (sessionId == null) return
         var dUp = 0L
@@ -75,6 +81,8 @@ object V2GetTraffic {
         up.addAndGet(dUp)
         down.addAndGet(dDown)
         writeLive(Live(totalUp.addAndGet(dUp), totalDown.addAndGet(dDown), (dUp / seconds).toLong(), (dDown / seconds).toLong()))
+        // Counted here, in the app, and shown at once: the screens do not wait for the panel to answer.
+        writeUnreported(up.get() + down.get())
         if (now - lastReportNanos >= REPORT_INTERVAL_NANOS) {
             lastReportNanos = now
             sendDelta(sessionId ?: return)
@@ -82,6 +90,7 @@ object V2GetTraffic {
     }
 
     /** The connection ends: the rest of its usage goes to the panel, off the calling thread. */
+    @Synchronized
     fun finish() {
         val id = sessionId ?: return
         sessionId = null
@@ -95,6 +104,17 @@ object V2GetTraffic {
         return if (parts.size == 4) Live(parts[0], parts[1], parts[2], parts[3]) else Live()
     }
 
+    /**
+     * The bytes this phone counted that the panel's figure does not hold yet: the ones not yet written into a report,
+     * and the ones in reports still waiting. Read in any process.
+     */
+    fun unconfirmedBytes(): Long =
+        (MmkvManager.decodeSettingsLong(KEY_UNREPORTED, 0L) + V2GetAuthManager.pendingBytes()).coerceAtLeast(0L)
+
+    private fun writeUnreported(bytes: Long) {
+        MmkvManager.encodeSettings(KEY_UNREPORTED, bytes)
+    }
+
     private fun writeLive(live: Live) {
         MmkvManager.encodeSettings(KEY_LIVE, "${live.up},${live.down},${live.upSpeed},${live.downSpeed}")
     }
@@ -104,6 +124,9 @@ object V2GetTraffic {
         val u = up.getAndSet(0)
         val d = down.getAndSet(0)
         val number = seq.getAndIncrement()
-        Thread({ V2GetAuthManager.reportUsage(id, number, u, d) }, "v2get-usage").start()
+        // The report is written down first and only then taken off the live counters, so the usage shown never dips.
+        V2GetAuthManager.queueUsage(id, number, u, d)
+        writeUnreported(0)
+        Thread({ V2GetAuthManager.flushPending() }, "v2get-usage").start()
     }
 }

@@ -159,15 +159,35 @@ object V2GetAuthManager {
         MmkvManager.encodeSettings(KEY_PENDING, array.toString())
     }
 
-    /** Writes one report of a session's traffic down ([seq] counts the session's reports from 0) and sends everything waiting. Blocking. */
+    /**
+     * Writes one report of a session's traffic down, without sending it ([seq] counts the session's reports from 0).
+     * Quick, so that the bytes move from the live counters to the waiting reports at once and the usage the screens
+     * show, which adds the two, never dips between them.
+     */
     @Synchronized
+    fun queueUsage(sessionId: String, seq: Int, up: Long, down: Long) {
+        if (up <= 0 && down <= 0) return
+        val list = readPending()
+        list.put(org.json.JSONObject().put("sid", sessionId).put("seq", seq).put("up", up).put("down", down))
+        writePending(list)
+    }
+
+    /** Writes one report of a session's traffic down and sends everything waiting. Blocking. */
     fun reportUsage(sessionId: String, seq: Int, up: Long, down: Long) {
-        if (up > 0 || down > 0) {
-            val list = readPending()
-            list.put(org.json.JSONObject().put("sid", sessionId).put("seq", seq).put("up", up).put("down", down))
-            writePending(list)
-        }
+        queueUsage(sessionId, seq, up, down)
         flushPending()
+    }
+
+    /** The bytes of the reports still waiting for the panel: used, but not yet in the panel's figure. */
+    @Synchronized
+    fun pendingBytes(): Long {
+        val list = readPending()
+        var total = 0L
+        for (i in 0 until list.length()) {
+            val item = list.optJSONObject(i) ?: continue
+            total += item.optLong("up", 0L) + item.optLong("down", 0L)
+        }
+        return total
     }
 
     /** Sends the waiting usage reports; the ones refused stay. Returns whether none is left. Blocking. */

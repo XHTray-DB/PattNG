@@ -22,6 +22,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import com.v2ray.ang.ui.compose.LocalDarkTheme
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,34 +47,77 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.v2ray.ang.R
 
-/** The pearl-and-pink palette of the V2GET screens, taken from the Luminescent Prism Glass design. */
+/**
+ * The pearl-and-pink palette of the V2GET screens, taken from the Luminescent Prism Glass design, with a dark
+ * variant for a phone in dark mode. The colors that carry text, icons and surfaces follow [dark]; the brand
+ * colors that sit under white text (the gradients, the connect button) keep one value in both modes.
+ *
+ * [dark] is a snapshot state, so every composable that reads a color here is recomposed when it changes. It is set
+ * once, before anything is drawn, by [V2GetThemeHost].
+ */
 object V2G {
+    /** Whether the screens draw their dark palette; set by [V2GetThemeHost] from the app's theme. */
+    var dark by mutableStateOf(false)
+        internal set
+
+    private fun pick(light: Long, night: Long) = Color(if (dark) night else light)
+
+    // Brand colors, the same in both modes: white text and icons sit on them.
     val Pink = Color(0xFFFF758F)
-    val Rose = Color(0xFFA8334E)
-    val Magenta = Color(0xFFB5005D)
-    val Hot = Color(0xFFE20476)
-    val Pearl = Color(0xFFFDF8FF)
-    val Lilac = Color(0xFFF2EBFF)
-    val LilacSoft = Color(0xFFF7F1FF)
-    val PinkSoft = Color(0xFFFFE3E9)
-    val Ink = Color(0xFF1D192E)
-    val Muted = Color(0xFF7A6B70)
+    val RoseDeep = Color(0xFFA8334E)
+    val HotDeep = Color(0xFFE20476)
+    val MagentaDeep = Color(0xFFB5005D)
     val Green = Color(0xFF10B981)
-    val GreenSoft = Color(0xFFD9F7EC)
-    val Error = Color(0xFFBA1A1A)
-    val Amber = Color(0xFF805521)
-    val AmberSoft = Color(0xFFFFEFD9)
     val Border = Color(0x26FF758F)
 
-    val BrandBrush: Brush = Brush.horizontalGradient(listOf(Rose, Hot, Magenta))
-    val SoftBrandBrush: Brush = Brush.horizontalGradient(listOf(Pink, Hot))
+    // Text, icon and surface colors, lightened for the dark palette so that they stay readable on it.
+    val Rose get() = pick(0xFFA8334E, 0xFFFF9DB2)
+    val Magenta get() = pick(0xFFB5005D, 0xFFFF7BBD)
+    val Hot get() = pick(0xFFE20476, 0xFFFF5BA5)
+    val Pearl get() = pick(0xFFFDF8FF, 0xFF15111B)
+    val Lilac get() = pick(0xFFF2EBFF, 0xFF30263F)
+    val LilacSoft get() = pick(0xFFF7F1FF, 0xFF271F33)
+    val PinkSoft get() = pick(0xFFFFE3E9, 0xFF402230)
+    val Ink get() = pick(0xFF1D192E, 0xFFF3ECF7)
+    val Muted get() = pick(0xFF7A6B70, 0xFFB9ADBB)
+    val GreenSoft get() = pick(0xFFD9F7EC, 0xFF11382D)
+    val Error get() = pick(0xFFBA1A1A, 0xFFFFB4AB)
+    val Amber get() = pick(0xFF805521, 0xFFF3C987)
+    val AmberSoft get() = pick(0xFFFFEFD9, 0xFF3B2D17)
+
+    /** The face of cards, chips and bars: white in the light palette, a deep violet-grey in the dark one. */
+    val Surface get() = pick(0xFFFFFFFF, 0xFF211A2B)
+
+    /** The inner face of the connect button's ring. */
+    val ButtonFace get() = pick(0xFFFFE9F0, 0xFF2C2036)
+
+    val BrandBrush: Brush = Brush.horizontalGradient(listOf(RoseDeep, HotDeep, MagentaDeep))
+    val SoftBrandBrush: Brush = Brush.horizontalGradient(listOf(Pink, HotDeep))
     val Mono: FontFamily = FontFamily.Monospace
 }
 
-/** The pearl-to-pink wash behind every V2GET screen. */
+/**
+ * Applies the app's light or dark theme to the V2GET palette and gives the screens its text color. Every V2GET
+ * screen's content goes inside it, in the right-to-left layout the design is written in.
+ */
+@Composable
+fun V2GetThemeHost(rtl: Boolean = true, content: @Composable () -> Unit) {
+    // Written while composing, before the first color is read, so that no frame is drawn in the wrong palette.
+    V2G.dark = LocalDarkTheme.current
+    CompositionLocalProvider(
+        LocalLayoutDirection provides if (rtl) LayoutDirection.Rtl else LocalLayoutDirection.current,
+        LocalContentColor provides V2G.Ink,
+        content = content,
+    )
+}
+
+/** The pearl-to-pink wash behind every V2GET screen, and its violet night counterpart. */
 @Composable
 fun Modifier.v2getBackground(): Modifier = background(
-    Brush.verticalGradient(listOf(Color(0xFFFFEFF4), Color(0xFFFDF8FF), Color(0xFFFCEEF5)))
+    Brush.verticalGradient(
+        if (V2G.dark) listOf(Color(0xFF1C1324), Color(0xFF15111B), Color(0xFF1A1120))
+        else listOf(Color(0xFFFFEFF4), Color(0xFFFDF8FF), Color(0xFFFCEEF5))
+    )
 )
 
 /** A white glass card with the soft pink hairline and shadow every panel in the design shares. */
@@ -80,7 +131,7 @@ fun GlassCard(
         modifier = modifier
             .shadow(6.dp, shape, ambientColor = V2G.Pink.copy(alpha = 0.25f), spotColor = V2G.Pink.copy(alpha = 0.25f))
             .clip(shape)
-            .background(Color.White.copy(alpha = 0.94f))
+            .background(V2G.Surface.copy(alpha = 0.94f))
             .border(1.dp, V2G.Border, shape),
         content = content,
     )
@@ -126,7 +177,7 @@ fun V2GetTopBar(connected: Boolean, onOpenAccount: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White.copy(alpha = 0.85f))
+            .background(V2G.Surface.copy(alpha = 0.85f))
             .statusBarsPadding()
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -159,7 +210,7 @@ fun V2GetTopBar(connected: Boolean, onOpenAccount: () -> Unit) {
             modifier = Modifier
                 .size(40.dp)
                 .clip(CircleShape)
-                .background(Brush.linearGradient(listOf(V2G.Pink, V2G.Rose)))
+                .background(Brush.linearGradient(listOf(V2G.Pink, V2G.RoseDeep)))
                 .clickable(onClickLabel = stringResource(R.string.v2get_open_account), role = Role.Button, onClick = onOpenAccount),
         ) { V2Icon(R.drawable.ic_v2g_person, Color.White, 20.dp) }
     }
@@ -171,7 +222,7 @@ fun V2GetBottomBar(selected: V2GetTab, onSelect: (V2GetTab) -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .shadow(16.dp, ambientColor = V2G.Pink, spotColor = V2G.Pink)
-            .background(Color.White)
+            .background(V2G.Surface)
             .navigationBarsPadding()
             .padding(horizontal = 8.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceAround,

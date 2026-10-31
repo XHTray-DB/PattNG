@@ -62,7 +62,7 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
         V2GetUiState(
-            session = V2GetSession.load(),
+            session = V2GetSession.loadLive(),
             servers = V2GetConfigSource.loadServers(),
             selectedGuid = V2GetConfigSource.selectedGuid(),
         )
@@ -75,6 +75,12 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
     /** Reads the traffic figures of the running connection; ended with the connection. */
     private var liveJob: Job? = null
 
+    /** The servers the start did not test for real, in the order to test them once connected. */
+    private var alternatives: List<String> = emptyList()
+
+    /** The real tests of the other servers, run beside the connection; ended with it. */
+    private var backgroundJob: Job? = null
+
     /** The server tests waiting for the test service to finish, by request id: true when it finished, false when it was cancelled. */
     private val pendingTests = ConcurrentHashMap<String, CompletableDeferred<Boolean>>()
 
@@ -86,11 +92,13 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
                     MainServiceEvent.StateRunning, MainServiceEvent.StateStartSuccess -> {
                         detectCountry()
                         startLivePolling()
+                        startBackgroundTests()
                     }
                     MainServiceEvent.StateNotRunning, MainServiceEvent.StateStopSuccess, is MainServiceEvent.StateStartFailure -> {
                         countryJob?.cancel()
                         liveJob?.cancel()
-                        _uiState.update { it.copy(live = V2GetTraffic.Live(), session = V2GetSession.load()) }
+                        backgroundJob?.cancel()
+                        _uiState.update { it.copy(live = V2GetTraffic.Live(), session = V2GetSession.loadLive()) }
                     }
                     is MainServiceEvent.MeasureConfigFinish -> pendingTests.remove(event.requestId)?.complete(true)
                     is MainServiceEvent.MeasureConfigCancelled -> pendingTests.remove(event.requestId)?.complete(false)
@@ -108,11 +116,11 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
     private fun startLivePolling() {
         liveJob?.cancel()
         liveJob = viewModelScope.launch {
-            var tick = 0
             while (true) {
-                val live = withContext(Dispatchers.IO) { V2GetTraffic.live() }
-                val refreshSession = tick++ % SESSION_REFRESH_TICKS == 0
-                _uiState.update { it.copy(live = live, session = if (refreshSession) V2GetSession.load() else it.session) }
+                // The usage is the app's own count (the panel's figure plus what was counted since), so it is
+                // read every second with the speed, not only when the panel answered.
+                val (live, session) = withContext(Dispatchers.IO) { V2GetTraffic.live() to V2GetSession.loadLive() }
+                _uiState.update { it.copy(live = live, session = session) }
                 delay(1_000L)
             }
         }
@@ -141,7 +149,7 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
     fun refresh() {
         _uiState.update {
             it.copy(
-                session = V2GetSession.load(),
+                session = V2GetSession.loadLive(),
                 servers = V2GetConfigSource.loadServers(),
                 selectedGuid = V2GetConfigSource.selectedGuid(),
             )
@@ -170,7 +178,7 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
      * as connecting until the daemon reports otherwise.
      */
     fun beginStart(): Boolean {
-        val session = V2GetSession.load()
+        val session = V2GetSession.loadLive()
         _uiState.update { it.copy(session = session) }
         val notice = when (session?.let { V2GetQuota.blockReason(it) }) {
             V2GetQuota.Block.QUOTA_EXHAUSTED -> V2GetNotice.QuotaExhausted
@@ -213,39 +221,89 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
     }
 
     /**
-     * Measures the servers and selects the best: every server is tried with a TCP connection first, the ones that
-     * answered get the real delay test (a request through the server itself), and the one with the lowest delay wins.
-     * A server that cannot be tested by TCP (UDP based) is not dropped by the first step. When nothing could be
-     * measured, the selection stays as it was.
+     * Picks the server the connection starts on, as fast as a working one is found: every server is tried with a TCP
+     * connection first (quick), then the ones that answered get the real delay test (a request through the server
+     * itself) one at a time, the fastest TCP answer first, and the first that really works is chosen at once. The
+     * servers not tested yet are kept in [alternatives] and tested in the background once the connection is up, so
+     * the person never waits for them. A server that cannot be tested by TCP (UDP based) is not dropped by the first
+     * step. When no server passed the real test, the lowest TCP time wins; when nothing could be measured, the
+     * selection stays as it was.
      */
     private suspend fun selectBestServer() {
         val servers = V2GetConfigSource.loadServers()
         if (servers.size < 2) return
+        backgroundJob?.cancel()
+        alternatives = emptyList()
         try {
             val all = servers.map { it.guid }
             dataSource.clearAllTestDelayResults(all)
             _uiState.update { it.copy(phase = V2GetPhase.Tcping) }
-            runServerTest(all, onlyTcp = true, budgetMs = TCP_BUDGET_MS)
+            if (runServerTest(all, onlyTcp = true, budgetMs = TCP_BUDGET_MS) == false) return
             val tcp = readDelays(all)
 
-            val alive = tcpSurvivors(servers, tcp)
-            dataSource.clearAllTestDelayResults(alive)
+            val order = realTestOrder(servers, tcp)
             _uiState.update { it.copy(phase = V2GetPhase.RealPing) }
-            runServerTest(alive, onlyTcp = false, budgetMs = REAL_BUDGET_MS)
-            val real = readDelays(alive)
+            val real = HashMap<String, Long>()
+            var winner: String? = null
+            for (guid in order) {
+                dataSource.clearAllTestDelayResults(listOf(guid))
+                // The person ended the start while this server was measured: nothing else is tested or selected.
+                if (runServerTest(listOf(guid), onlyTcp = false, budgetMs = REAL_BUDGET_MS) == false) return
+                val delay = readDelays(listOf(guid))[guid] ?: -1L
+                real[guid] = delay
+                if (delay > 0L) {
+                    winner = guid
+                    break
+                }
+            }
 
-            bestServer(servers, tcp, real)?.let { selectServer(it) }
+            val best = winner ?: bestServer(servers, tcp, real)
+            best?.let { selectServer(it) }
+            alternatives = order.filter { it != best }
         } finally {
             _uiState.update { it.copy(phase = V2GetPhase.None) }
         }
+    }
+
+    /**
+     * Once the connection is up, the servers the start did not reach are tested for real, one at a time, so that a
+     * server is known to work (and how fast) when Zero-Drop needs a replacement. This runs beside the connection and
+     * never holds it back; it ends with the connection or when a newer start begins.
+     */
+    private fun startBackgroundTests() {
+        val connected = _uiState.value.selectedGuid
+        val pending = alternatives.ifEmpty { _uiState.value.servers.map { it.guid } }.filter { it != connected }
+        alternatives = emptyList()
+        if (pending.isEmpty()) return
+        backgroundJob?.cancel()
+        backgroundJob = viewModelScope.launch {
+            for (guid in pending) {
+                if (_uiState.value.connection != V2GetConnection.Connected) return@launch
+                dataSource.clearAllTestDelayResults(listOf(guid))
+                if (runServerTest(listOf(guid), onlyTcp = false, budgetMs = REAL_BUDGET_MS) == false) return@launch
+            }
+        }
+    }
+
+    /**
+     * The server Zero-Drop moves to after [failed] ones: the one that passed the real test with the lowest delay,
+     * else the first that has not failed. Null when every server has failed.
+     */
+    suspend fun nextServer(failed: Set<String>): String? {
+        val servers = _uiState.value.servers
+        val delays = readDelays(servers.map { it.guid })
+        return nextAlternative(servers, failed, delays)
     }
 
     private suspend fun readDelays(guids: List<String>): Map<String, Long> = withContext(Dispatchers.IO) {
         guids.associateWith { dataSource.decodeAffiliationInfo(it)?.testDelayMillis ?: -1L }
     }
 
-    /** Asks the test service to measure [guids] and waits for it, at most [budgetMs]; what did not finish by then is cancelled. */
-    private suspend fun runServerTest(guids: List<String>, onlyTcp: Boolean, budgetMs: Long) {
+    /**
+     * Asks the test service to measure [guids] and waits for it, at most [budgetMs]; what did not finish by then is
+     * cancelled. True when it finished, false when it was cancelled from outside, null when the budget ran out.
+     */
+    private suspend fun runServerTest(guids: List<String>, onlyTcp: Boolean, budgetMs: Long): Boolean? {
         val requestId = UUID.randomUUID().toString()
         val done = CompletableDeferred<Boolean>()
         pendingTests[requestId] = done
@@ -256,10 +314,12 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
         val finished = withTimeoutOrNull(budgetMs) { done.await() }
         pendingTests.remove(requestId)
         if (finished == null) dataSource.cancelAllPing()
+        return finished
     }
 
     /** The person ended a start that was still measuring servers: the tests stop and the screen is idle again. */
     fun cancelStart() {
+        backgroundJob?.cancel()
         dataSource.cancelAllPing()
         pendingTests.values.forEach { it.complete(false) }
         _uiState.update { it.copy(connection = V2GetConnection.Disconnected, phase = V2GetPhase.None) }
@@ -285,9 +345,10 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
 
     companion object {
         private const val COUNTRY_ATTEMPTS = 4
-        private const val SESSION_REFRESH_TICKS = 5
         private const val TCP_BUDGET_MS = 10_000L
-        private const val REAL_BUDGET_MS = 30_000L
+
+        /** One server's real test; the servers are tried one at a time, so a dead one costs no more than this. */
+        private const val REAL_BUDGET_MS = 10_000L
 
         /** The kinds of server a TCP connection says nothing about: they speak UDP. */
         private val TCP_UNTESTABLE = setOf("HYSTERIA2", "WIREGUARD")
@@ -299,6 +360,23 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
         internal fun tcpSurvivors(servers: List<V2GetServer>, tcp: Map<String, Long>): List<String> {
             val alive = servers.filter { (tcp[it.guid] ?: -1L) > 0L || it.family in TCP_UNTESTABLE }.map { it.guid }
             return alive.ifEmpty { servers.map { it.guid } }
+        }
+
+        /**
+         * The order the survivors get the real test in: the fastest TCP answer first, the ones a TCP test cannot judge
+         * after those that answered, in the order of the list.
+         */
+        internal fun realTestOrder(servers: List<V2GetServer>, tcp: Map<String, Long>): List<String> {
+            val alive = tcpSurvivors(servers, tcp)
+            val (answered, silent) = alive.partition { (tcp[it] ?: -1L) > 0L }
+            return answered.sortedBy { tcp.getValue(it) } + silent
+        }
+
+        /** The replacement after failures: the lowest real delay that is positive, else the first server not failed. */
+        internal fun nextAlternative(servers: List<V2GetServer>, failed: Set<String>, delays: Map<String, Long>): String? {
+            val left = servers.filter { it.guid !in failed }
+            return left.filter { (delays[it.guid] ?: -1L) > 0L }.minByOrNull { delays.getValue(it.guid) }?.guid
+                ?: left.firstOrNull()?.guid
         }
 
         /**

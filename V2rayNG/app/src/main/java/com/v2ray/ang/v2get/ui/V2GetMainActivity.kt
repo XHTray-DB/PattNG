@@ -19,7 +19,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Scaffold
@@ -155,10 +154,7 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
         }
 
         // The design is written right to left, and the screens are Persian-only.
-        CompositionLocalProvider(
-            LocalLayoutDirection provides LayoutDirection.Rtl,
-            LocalContentColor provides V2G.Ink,
-        ) {
+        V2GetThemeHost {
             Scaffold(
                 modifier = Modifier.fillMaxSize().v2getBackground(),
                 containerColor = Color.Transparent,
@@ -278,14 +274,17 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
         if (!V2GetSettings.zeroDrop()) return false
         val state = viewModel.uiState.value
         state.selectedGuid?.let { failedServers.add(it) }
-        val next = state.servers.firstOrNull { it.guid !in failedServers }
-        if (next == null) {
+        if (state.servers.none { it.guid !in failedServers }) {
             failedServers.clear()
             return false
         }
-        viewModel.selectServer(next.guid)
-        toast(getString(R.string.v2get_zero_drop_switching))
-        requestStart()
+        // The replacement is the best one the background tests found, so it is looked up off the main thread.
+        lifecycleScope.launch {
+            val next = viewModel.nextServer(failedServers.toSet()) ?: return@launch
+            viewModel.selectServer(next)
+            toast(getString(R.string.v2get_zero_drop_switching))
+            requestStart()
+        }
         return true
     }
 
