@@ -30,24 +30,6 @@ class CoreTestService : Service() {
 
     // manage active batch workers so each batch is independent and cancellable
     private val activeWorkers = ConcurrentHashMap<RealPingWorkerService, String>()
-    private val cancelAction by lazy {
-        val intent = Intent(this, CoreTestService::class.java).putExtra(
-            "content",
-            TestServiceMessage(AppConfig.MSG_MEASURE_CONFIG_CANCEL)
-        )
-        val pendingIntent = PendingIntent.getService(
-            this,
-            NotificationChannelType.CORE_TEST.notificationId,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        NotificationCompat.Action.Builder(
-            R.drawable.ic_stop_24dp,
-            getString(R.string.action_cancel),
-            pendingIntent
-        ).build()
-    }
-
     /**
      * Initializes the V2Ray environment.
      */
@@ -83,12 +65,13 @@ class CoreTestService : Service() {
      * @return The start mode.
      */
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Android requires a notification from a foreground service, so one stays; it says nothing about the tests:
+        // no progress line, no count and no button (a test is cancelled from the screen that started it).
         NotificationHelper.startForeground(
             this,
             NotificationChannelType.CORE_TEST,
             getString(R.string.app_name),
-            getString(R.string.title_real_ping_all_server),
-            cancelAction
+            "",
         )
         val message = intent?.serializable<TestServiceMessage>("content")
         if (message == null) {
@@ -141,12 +124,6 @@ class CoreTestService : Service() {
     private fun handleWorkerEvent(event: RealPingEvent, message: TestServiceMessage, requestId: String, onWorkerDone: () -> Unit) {
         when (event) {
             is RealPingEvent.Progress -> {
-                NotificationHelper.updateNotification(
-                    channelType = NotificationChannelType.CORE_TEST,
-                    context = this,
-                    title = getString(R.string.app_name),
-                    content = getString(R.string.connection_running_task_left, event.text)
-                )
                 MessageHelper.sendMsg2UI(this, AppConfig.MSG_MEASURE_CONFIG_NOTIFY, event.text, requestId)
             }
 

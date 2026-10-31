@@ -31,6 +31,8 @@ import com.v2ray.ang.service.DialerNativeService
 import com.v2ray.ang.service.DialerWebviewService
 import com.v2ray.ang.service.NetworkMonitor
 import com.v2ray.ang.util.LogUtil
+import com.v2ray.ang.v2get.V2GetConfigSource
+import com.v2ray.ang.v2get.V2GetCountry
 import com.v2ray.ang.v2get.V2GetTraffic
 import com.v2ray.ang.util.Utils
 import kotlinx.coroutines.CoroutineScope
@@ -53,6 +55,7 @@ object CoreServiceManager {
 
     private const val AETHER_WARM_UP_MS = 30_000L
     private const val TRAFFIC_POLL_MS = 3_000L
+    private const val LOCATION_ATTEMPTS = 8
 
     private val coreController: CoreController = CoreNativeManager.newCoreController(CoreCallback())
     private val mMsgReceive = ReceiveMessageHandler()
@@ -174,7 +177,30 @@ object CoreServiceManager {
         launchCore(service, vpnInterface)
         V2GetTraffic.begin(MmkvManager.getSelectServer())
         startTrafficPoll()
+        startLocationProbe()
         startNetworkMonitor(service)
+    }
+
+    /**
+     * V2GET: finds the country the tunnel exits in a few seconds after the start (the tunnel needs a moment before a
+     * request through it is answered), keeps it for the server and shows it in the notification, which carries no
+     * configuration name. Runs in the daemon so the notification is right even when no screen is open; it ends with
+     * the connection.
+     */
+    private fun startLocationProbe() {
+        val guid = MmkvManager.getSelectServer() ?: return
+        if (!V2GetConfigSource.isV2GetGuid(guid)) return
+        trafficScope.launch {
+            repeat(LOCATION_ATTEMPTS) { attempt ->
+                delay(if (attempt == 0) 2_000L else 4_000L)
+                val code = V2GetConfigSource.detectExitCountry()
+                if (code != null) {
+                    V2GetConfigSource.saveCountry(guid, code)
+                    NotificationManager.setLocation(V2GetCountry.title(code, ""))
+                    return@launch
+                }
+            }
+        }
     }
 
     /**

@@ -110,4 +110,11 @@ class V2GetViewModelTest {
         assertEquals("b", V2GetViewModel.nextAlternative(servers, setOf("a"), emptyMap()))
         assertEquals(null, V2GetViewModel.nextAlternative(servers, setOf("a", "b"), emptyMap()))
     }
+
+    @Test
+    fun anAetherServerHasNoRealTestAndOthersDo() {
+        assertEquals(false, V2GetViewModel.needsRealTest(server("a", "AETHER")))
+        assertEquals(true, V2GetViewModel.needsRealTest(server("b", "VLESS")))
+        assertEquals(true, V2GetViewModel.needsRealTest(server("c", "HYSTERIA2")))
+    }
 }

@@ -16,6 +16,8 @@ import com.v2ray.ang.extension.delay
 import com.v2ray.ang.extension.toSpeedString
 import com.v2ray.ang.helper.NotificationHelper
 import com.v2ray.ang.util.LogUtil
+import com.v2ray.ang.v2get.V2GetConfigSource
+import com.v2ray.ang.v2get.V2GetCountry
 import com.v2ray.ang.v2get.ui.V2GetMainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -50,6 +52,17 @@ object NotificationManager {
         val content = composeContentText()
         builder.setStyle(NotificationCompat.BigTextStyle().bigText(content))
         builder.setContentText(content)
+        getNotificationManager()?.notify(NOTIFICATION_ID, builder.build())
+    }
+
+    /** The flag and country of the server [guid] when its exit country was measured, else null (nothing is shown). */
+    private fun locationText(guid: String?): String? =
+        V2GetConfigSource.countryOf(guid)?.let { V2GetCountry.title(it, "") }?.takeIf { it.isNotBlank() }
+
+    /** Shows where the tunnel exits, as soon as it is known; null removes the line. */
+    fun setLocation(text: String?) {
+        val builder = mBuilder ?: return
+        builder.setSubText(text?.takeIf { it.isNotBlank() })
         getNotificationManager()?.notify(NOTIFICATION_ID, builder.build())
     }
 
@@ -108,7 +121,8 @@ object NotificationManager {
             .setSmallIcon(R.drawable.ic_stat_name)
             // V2GET: the notification is the app's own, named and drawn as V2GET; the server stays a sub-line.
             .setContentTitle(service.getString(R.string.app_name))
-            .setSubText(currentConfig?.remarks?.takeIf { it.isNotBlank() })
+            // The name of the configuration is never shown: only the place the tunnel exits in, once it is known.
+            .setSubText(locationText(MmkvManager.getSelectServer()))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .setShowWhen(false)

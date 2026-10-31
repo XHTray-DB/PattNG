@@ -9,10 +9,10 @@ import com.v2ray.ang.handler.MmkvManager
  */
 object V2GetSettings {
 
-    /** Zero-Drop: when a connection fails to start, the next server is tried. Off until chosen. */
+    /** Zero-Drop: when a connection fails to start, the next server is tried. On until switched off. */
     const val KEY_ZERO_DROP = "V2GET_ZERO_DROP"
 
-    fun zeroDrop(): Boolean = MmkvManager.decodeSettingsBool(KEY_ZERO_DROP, false)
+    fun zeroDrop(): Boolean = MmkvManager.decodeSettingsBool(KEY_ZERO_DROP, true)
 
     fun setZeroDrop(on: Boolean) {
         MmkvManager.encodeSettings(KEY_ZERO_DROP, on)

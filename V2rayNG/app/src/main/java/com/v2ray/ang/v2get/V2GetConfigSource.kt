@@ -15,9 +15,11 @@ import com.v2ray.ang.fmt.VlessFmt
 import com.v2ray.ang.fmt.VmessFmt
 import com.v2ray.ang.fmt.WireguardFmt
 import com.v2ray.ang.handler.MmkvManager
+import com.v2ray.ang.dto.UrlContentRequest
+import com.v2ray.ang.handler.SettingsManager
 import com.v2ray.ang.handler.SpeedtestManager
+import com.v2ray.ang.util.HttpUtil
 import com.v2ray.ang.util.LogUtil
-import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLDecoder
 import java.security.MessageDigest
@@ -163,6 +165,9 @@ object V2GetConfigSource {
         MmkvManager.encodeSettings(KEY_COUNTRIES, json.toString())
     }
 
+    /** The exit country measured for the server [guid], as a code; null until it was measured. Read in any process. */
+    fun countryOf(guid: String?): String? = guid?.let { loadCountries()[it] }
+
     /** Keeps the exit country measured for the server [guid]; the screens show it from then on. */
     fun saveCountry(guid: String, code: String) {
         val normalized = V2GetCountry.normalize(code) ?: return
@@ -218,20 +223,39 @@ object V2GetConfigSource {
         return true
     }
 
+    /** The same file through GitHub's API, which answers with the file as it is now and not from the raw host's cache. */
+    private const val API_URL = "https://api.github.com/repos/XHTray-DB/Pattconf/contents/conf.json?ref=main"
+
+    /**
+     * Downloads the file. The raw host keeps an answer for minutes, and a filtered network may refuse it, so the
+     * sources are tried one after the other and the first answer that holds a usable link wins: the raw file with a
+     * query that never repeats (the cache cannot answer it), the same through the running tunnel's local proxy when
+     * one is up, then the GitHub API. Blocking.
+     */
     private fun download(): String {
-        val conn = (URL(CONFIG_URL).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 12_000
-            readTimeout = 12_000
-            setRequestProperty("Cache-Control", "no-cache")
+        val stamp = System.currentTimeMillis()
+        val headers = """{"Cache-Control":"no-cache, no-store","Pragma":"no-cache"}"""
+        val port = SettingsManager.getHttpPort()
+        val username = SettingsManager.getSocksUsername()
+        val password = SettingsManager.getSocksPassword()
+        val sources = listOf(
+            UrlContentRequest("$CONFIG_URL?t=$stamp", timeout = 12_000, requestHeaders = headers),
+            UrlContentRequest("$CONFIG_URL?t=$stamp", timeout = 12_000, httpPort = port, proxyUsername = username, proxyPassword = password, requestHeaders = headers),
+            UrlContentRequest(API_URL, timeout = 12_000, requestHeaders = """{"Accept":"application/vnd.github.raw+json","Cache-Control":"no-cache"}"""),
+            UrlContentRequest(API_URL, timeout = 12_000, httpPort = port, proxyUsername = username, proxyPassword = password, requestHeaders = """{"Accept":"application/vnd.github.raw+json","Cache-Control":"no-cache"}"""),
+        )
+        var failure = "no source answered"
+        sources.forEachIndexed { index, request ->
+            try {
+                val text = HttpUtil.getUrlContentWithUserAgent(request)
+                if (extractLinks(text).isNotEmpty()) return text
+                failure = "source ${index + 1} held no usable link"
+            } catch (e: Exception) {
+                failure = "${e.javaClass.simpleName}: ${e.message.orEmpty()}"
+                LogUtil.w(AppConfig.TAG, "V2GetConfigSource: source ${index + 1} failed: $failure")
+            }
         }
-        try {
-            val code = conn.responseCode
-            if (code != HttpURLConnection.HTTP_OK) throw IllegalStateException("HTTP $code")
-            return conn.inputStream.bufferedReader().use { it.readText() }
-        } finally {
-            conn.disconnect()
-        }
+        throw IllegalStateException(failure)
     }
 
     private fun cachedUris(): List<String> {

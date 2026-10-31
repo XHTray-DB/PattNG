@@ -245,7 +245,18 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
             _uiState.update { it.copy(phase = V2GetPhase.RealPing) }
             val real = HashMap<String, Long>()
             var winner: String? = null
+            val byGuid = servers.associateBy { it.guid }
             for (guid in order) {
+                // An Aether server has no real delay test: its TCP answer is the proof that it works.
+                if (byGuid[guid]?.let { needsRealTest(it) } == false) {
+                    val delay = tcp[guid] ?: -1L
+                    real[guid] = delay
+                    if (delay > 0L) {
+                        winner = guid
+                        break
+                    }
+                    continue
+                }
                 dataSource.clearAllTestDelayResults(listOf(guid))
                 // The person ended the start while this server was measured: nothing else is tested or selected.
                 if (runServerTest(listOf(guid), onlyTcp = false, budgetMs = REAL_BUDGET_MS) == false) return
@@ -272,7 +283,10 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
      */
     private fun startBackgroundTests() {
         val connected = _uiState.value.selectedGuid
-        val pending = alternatives.ifEmpty { _uiState.value.servers.map { it.guid } }.filter { it != connected }
+        val byGuid = _uiState.value.servers.associateBy { it.guid }
+        // Aether servers keep the TCP answer of the start as their result: they have no real test.
+        val pending = alternatives.ifEmpty { _uiState.value.servers.map { it.guid } }
+            .filter { it != connected && byGuid[it]?.let { needsRealTest(it) } != false }
         alternatives = emptyList()
         if (pending.isEmpty()) return
         backgroundJob?.cancel()
@@ -349,6 +363,9 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
 
         /** One server's real test; the servers are tried one at a time, so a dead one costs no more than this. */
         private const val REAL_BUDGET_MS = 10_000L
+
+        /** Whether the real delay test applies to [server]: Aether servers have none, their TCP answer stands in for it. */
+        internal fun needsRealTest(server: V2GetServer): Boolean = server.family != "AETHER"
 
         /** The kinds of server a TCP connection says nothing about: they speak UDP. */
         private val TCP_UNTESTABLE = setOf("HYSTERIA2", "WIREGUARD")
