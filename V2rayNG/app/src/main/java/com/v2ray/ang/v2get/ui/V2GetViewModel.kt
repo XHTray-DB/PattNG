@@ -9,6 +9,8 @@ import com.v2ray.ang.v2get.V2GetConfigSource
 import com.v2ray.ang.v2get.V2GetGeoFiles
 import com.v2ray.ang.v2get.V2GetServer
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import com.v2ray.ang.ui.main.MainServiceEvent
 import com.v2ray.ang.v2get.V2GetQuota
@@ -53,11 +55,41 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
     )
     val uiState: StateFlow<V2GetUiState> = _uiState.asStateFlow()
 
+    /** The measuring of the exit country of the running connection; ended with the connection. */
+    private var countryJob: Job? = null
+
     init {
         viewModelScope.launch {
-            dataSource.mainServiceEvent.collect { event -> _uiState.update { reduce(it, event) } }
+            dataSource.mainServiceEvent.collect { event ->
+                _uiState.update { reduce(it, event) }
+                when (event) {
+                    MainServiceEvent.StateRunning, MainServiceEvent.StateStartSuccess -> detectCountry()
+                    MainServiceEvent.StateNotRunning, MainServiceEvent.StateStopSuccess, is MainServiceEvent.StateStartFailure -> countryJob?.cancel()
+                    else -> Unit
+                }
+            }
         }
         dataSource.queryServiceState()
+    }
+
+    /**
+     * Finds out which country the connection exits in, a few seconds after it came up (the tunnel needs a moment
+     * before a request through it is answered), and keeps it for the server so the lists show its flag and name.
+     */
+    private fun detectCountry() {
+        val guid = _uiState.value.selectedGuid ?: return
+        countryJob?.cancel()
+        countryJob = viewModelScope.launch {
+            repeat(COUNTRY_ATTEMPTS) { attempt ->
+                delay(if (attempt == 0) 2_000L else 4_000L)
+                val code = withContext(Dispatchers.IO) { V2GetConfigSource.detectExitCountry() }
+                if (code != null) {
+                    withContext(Dispatchers.IO) { V2GetConfigSource.saveCountry(guid, code) }
+                    _uiState.update { it.copy(servers = V2GetConfigSource.loadServers()) }
+                    return@launch
+                }
+            }
+        }
     }
 
     fun refresh() {
@@ -151,6 +183,8 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
     }
 
     companion object {
+        private const val COUNTRY_ATTEMPTS = 4
+
         internal fun reduce(state: V2GetUiState, event: MainServiceEvent): V2GetUiState = when (event) {
             MainServiceEvent.StateRunning,
             MainServiceEvent.StateStartSuccess -> state.copy(connection = V2GetConnection.Connected)

@@ -7,6 +7,7 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -48,8 +49,10 @@ import com.v2ray.ang.extension.toast
 import com.v2ray.ang.handler.SettingsManager
 import com.v2ray.ang.ui.base.HelperBaseComponentActivity
 import com.v2ray.ang.ui.main.MainRepository
+import com.v2ray.ang.ui.perappproxy.PerAppProxyActivity
 import com.v2ray.ang.v2get.V2GetAuthManager
 import com.v2ray.ang.v2get.V2GetConfigSource
+import com.v2ray.ang.v2get.V2GetSettings
 
 class V2GetMainActivity : HelperBaseComponentActivity() {
 
@@ -64,6 +67,18 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
 
     /** A tap on another server while a core runs: the core is stopped, and the connection starts once the daemon says it stopped. */
     private var startAfterStop = false
+
+    /** The switches of the settings tab, read when the screen starts and after each change. */
+    private var perAppProxy by mutableStateOf(false)
+    private var zeroDrop by mutableStateOf(false)
+    private var dnsProtected by mutableStateOf(true)
+
+    /**
+     * Zero-Drop: the servers that already failed to start in the current series of attempts, so each server is
+     * tried once. Emptied when a connection comes up and when the person starts a connection by hand. A stop the
+     * person asks for, here or from the notification, is never answered with another connection.
+     */
+    private val failedServers = mutableSetOf<String>()
 
     private val requestVpnPermission =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -83,6 +98,7 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
             return
         }
         vpnMode = SettingsManager.isVpnMode()
+        readSettings()
         // The service can have gone away while the screen was not shown, and the account page can have changed the figures.
         viewModel.refresh()
         lifecycleScope.launch { viewModel.reloadServers() }
@@ -102,7 +118,10 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
                 null -> return@LaunchedEffect
                 V2GetNotice.QuotaExhausted -> context.toast(context.getString(R.string.v2get_quota_exhausted))
                 V2GetNotice.Expired -> context.toast(context.getString(R.string.v2get_subscription_expired))
-                is V2GetNotice.StartFailure -> errorText = notice.reason.ifBlank { context.getString(R.string.v2get_error_unknown) }
+                is V2GetNotice.StartFailure -> {
+                    // Zero-Drop: another server is tried before the person is told; the dialog comes when none is left.
+                    if (!tryNextServer()) errorText = notice.reason.ifBlank { context.getString(R.string.v2get_error_unknown) }
+                }
                 is V2GetNotice.Failure -> errorText = notice.reason
             }
             viewModel.noticeShown()
@@ -118,6 +137,7 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
             }
         }
         LaunchedEffect(state.connection) {
+            if (state.connection == V2GetConnection.Connected) failedServers.clear()
             if (state.connection == V2GetConnection.Disconnected && startAfterStop) {
                 startAfterStop = false
                 requestStart()
@@ -162,7 +182,24 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
                                 accountViewModel.logout()
                             },
                         )
-                        V2GetTab.Settings -> SettingsTab(BuildConfig.VERSION_NAME)
+                        V2GetTab.Settings -> SettingsTab(
+                            versionName = BuildConfig.VERSION_NAME,
+                            perAppProxy = perAppProxy,
+                            zeroDrop = zeroDrop,
+                            dnsProtected = dnsProtected,
+                            onSplitTunneling = { startActivity(Intent(this@V2GetMainActivity, PerAppProxyActivity::class.java)) },
+                            onKillSwitch = ::openVpnSettings,
+                            onZeroDrop = { on ->
+                                V2GetSettings.setZeroDrop(on)
+                                failedServers.clear()
+                                readSettings()
+                            },
+                            onDnsProtected = { on ->
+                                V2GetSettings.setDnsProtected(on)
+                                readSettings()
+                                toast(getString(R.string.v2get_settings_applies_next))
+                            },
+                        )
                     }
                 }
             }
@@ -176,6 +213,7 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
 
     private fun toggleConnection() {
         if (viewModel.uiState.value.connection == V2GetConnection.Disconnected) {
+            failedServers.clear()
             requestStart()
         } else {
             LauncherManager.stopService(this)
@@ -187,6 +225,7 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
     /** The connection of the server [guid]: started now, or after the running core stops when it is another server. */
     private fun connectTo(guid: String) {
         viewModel.selectServer(guid)
+        failedServers.clear()
         if (viewModel.uiState.value.connection == V2GetConnection.Disconnected) {
             requestStart()
         } else {
@@ -194,6 +233,45 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
             LauncherManager.stopService(this)
             viewModel.refresh()
         }
+    }
+
+    private fun readSettings() {
+        perAppProxy = V2GetSettings.perAppProxy()
+        zeroDrop = V2GetSettings.zeroDrop()
+        dnsProtected = V2GetSettings.dnsProtected()
+    }
+
+    /**
+     * Kill switch: Android's own. Its always-on VPN with "Block connections without VPN" cuts the traffic of the
+     * whole phone whenever the tunnel is down, which an app cannot do for itself; the VPN service of this app
+     * supports always-on, so the person only has to switch it on in the system's VPN settings.
+     */
+    private fun openVpnSettings() {
+        try {
+            startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
+        } catch (e: Exception) {
+            toast(getString(R.string.v2get_settings_kill_unavailable))
+        }
+    }
+
+    /**
+     * Zero-Drop: after a connection that could not start, the next server that has not failed in this series
+     * takes over and a connection starts at once. False, with the series emptied, when the switch is off or every
+     * server has failed.
+     */
+    private fun tryNextServer(): Boolean {
+        if (!V2GetSettings.zeroDrop()) return false
+        val state = viewModel.uiState.value
+        state.selectedGuid?.let { failedServers.add(it) }
+        val next = state.servers.firstOrNull { it.guid !in failedServers }
+        if (next == null) {
+            failedServers.clear()
+            return false
+        }
+        viewModel.selectServer(next.guid)
+        toast(getString(R.string.v2get_zero_drop_switching))
+        requestStart()
+        return true
     }
 
     private fun requestStart() {

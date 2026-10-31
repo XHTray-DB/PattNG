@@ -5,21 +5,41 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.v2ray.ang.AppConfig
 import com.v2ray.ang.dto.entities.ProfileItem
+import com.v2ray.ang.enums.EConfigType
 import com.v2ray.ang.fmt.AetherFmt
+import com.v2ray.ang.fmt.Hysteria2Fmt
+import com.v2ray.ang.fmt.ShadowsocksFmt
+import com.v2ray.ang.fmt.SocksFmt
+import com.v2ray.ang.fmt.TrojanFmt
+import com.v2ray.ang.fmt.VlessFmt
+import com.v2ray.ang.fmt.VmessFmt
+import com.v2ray.ang.fmt.WireguardFmt
 import com.v2ray.ang.handler.MmkvManager
+import com.v2ray.ang.handler.SpeedtestManager
 import com.v2ray.ang.util.LogUtil
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLDecoder
 import java.security.MessageDigest
 
-/** One server of the account: the profile it is stored under and what the screens show of it. */
-data class V2GetServer(val guid: String, val name: String, val protocol: String)
+/**
+ * One server of the account: the profile it is stored under and what the screens show of it. [countryCode] is
+ * the exit country the app measured through the tunnel (blank until the server has been connected once).
+ */
+data class V2GetServer(
+    val guid: String,
+    val name: String,
+    val protocol: String,
+    val countryCode: String = "",
+    /** The kind of the profile (`AETHER`, `VLESS`, `VMESS`...), what the server list filters by. */
+    val family: String = "",
+)
 
 /**
- * Where the Aether servers come from: the public `conf.json` of the Pattconf repository, read raw.
- * Every `aether://` link of the file is one server. The panel (worker) hands out no core settings; the
- * file is the only source, and the app has no built-in command.
+ * Where the servers come from: the public `conf.json` of the Pattconf repository, read raw. Every link of the
+ * file that the app can use (`aether://`, `vless://`, `vmess://`, `ss://`, `trojan://`, `hysteria2://` and the
+ * like) is one server. The panel (worker) hands out no core settings; the file is the only source, and the app
+ * has no built-in command.
  */
 object V2GetConfigSource {
 
@@ -34,22 +54,66 @@ object V2GetConfigSource {
     private const val KEY_SERVERS = "V2GET_SERVERS"
     private const val KEY_SELECTED = "V2GET_SELECTED_GUID"
 
-    private val AETHER_URI = Regex("""aether://[^\s"'<>,]+""", RegexOption.IGNORE_CASE)
+    private const val KEY_COUNTRIES = "V2GET_COUNTRIES"
+
+    /** The schemes of the links a server can be made of, and what reads each of them. */
+    private val PARSERS: Map<String, (String) -> ProfileItem?> = linkedMapOf(
+        EConfigType.AETHER.protocolScheme to AetherFmt::parse,
+        EConfigType.VLESS.protocolScheme to VlessFmt::parse,
+        EConfigType.VMESS.protocolScheme to VmessFmt::parse,
+        EConfigType.SHADOWSOCKS.protocolScheme to ShadowsocksFmt::parse,
+        EConfigType.TROJAN.protocolScheme to TrojanFmt::parse,
+        EConfigType.HYSTERIA2.protocolScheme to Hysteria2Fmt::parse,
+        AppConfig.HY2 to Hysteria2Fmt::parse,
+        EConfigType.WIREGUARD.protocolScheme to WireguardFmt::parse,
+        EConfigType.SOCKS.protocolScheme to SocksFmt::parse,
+        AppConfig.SOCKS5 to SocksFmt::parse,
+    )
+
+    /**
+     * A link starts at its scheme, and a scheme is not found inside a longer word: `ss://` must not be read out
+     * of `vless://`.
+     */
+    private val LINK_URI = Regex(
+        "(?<![A-Za-z0-9+.-])(?:" + PARSERS.keys.joinToString("|") { Regex.escape(it.removeSuffix("://")) } + """)://[^\s"'<>,]+""",
+        RegexOption.IGNORE_CASE,
+    )
 
     /** The first `aether://` link in [text], or null. */
     internal fun extractAetherUri(text: String): String? = extractAetherUris(text).firstOrNull()
 
-    /**
-     * Every `aether://` link in [text], in file order, each once. The file may be plain lines or JSON; a JSON
-     * writer's escapes of `&` and `/` are undone first. Other schemes of the file are not used by this app.
-     */
+    /** Every `aether://` link in [text], in file order, each once. */
     internal fun extractAetherUris(text: String): List<String> =
-        AETHER_URI.findAll(text.replace("\\u0026", "&").replace("\\/", "/")).map { it.value }.distinct().toList()
+        extractLinks(text).filter { it.startsWith(EConfigType.AETHER.protocolScheme, ignoreCase = true) }
+
+    /**
+     * Every link of a kind the app can use in [text], in file order, each once. The file may be plain lines or
+     * JSON; a JSON writer's escapes of `&` and `/` are undone first.
+     */
+    internal fun extractLinks(text: String): List<String> =
+        LINK_URI.findAll(text.replace("\\u0026", "&").replace("\\/", "/")).map { it.value }.distinct().toList()
+
+    /** The profile a link stands for, or null when it is none the app can read. */
+    internal fun parseLink(uri: String): ProfileItem? =
+        PARSERS.entries.firstOrNull { uri.startsWith(it.key, ignoreCase = true) }?.value?.invoke(uri)
 
     /** The profile id of a link: the same link is always the same profile, so a chosen server stays chosen when the file is reordered. */
     internal fun guidOf(uri: String): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(uri.toByteArray(Charsets.UTF_8))
         return GUID_PREFIX + digest.take(6).joinToString("") { "%02x".format(it) }
+    }
+
+    /**
+     * What the screens show of a link that is not an Aether link: its name and a protocol line made of the
+     * profile's own fields, such as `VLESS / WS / TLS`.
+     */
+    internal fun describe(uri: String, index: Int, profile: ProfileItem?): V2GetServer {
+        if (profile == null || profile.configType == EConfigType.AETHER) return describe(uri, index)
+        val line = listOf(profile.configType.name, profile.network, profile.security)
+            .filter { !it.isNullOrBlank() && !it.equals("none", ignoreCase = true) && !it.equals("tcp", ignoreCase = true) }
+            .joinToString(" / ") { it!!.uppercase() }
+        val name = profile.remarks.trim().ifEmpty { "V2GET ${index + 1}" }
+        return V2GetServer(guidOf(uri), name, line, family = profile.configType.name)
     }
 
     /** What the screens show of the link at [index]: its name (the fragment) and its protocol line. */
@@ -63,7 +127,7 @@ object V2GetConfigSource {
         val protocol = listOf(params["protocol"], params["transport"])
             .filter { !it.isNullOrBlank() }
             .joinToString(" / ") { it!!.uppercase() }
-        return V2GetServer(guidOf(uri), name.ifEmpty { "V2GET ${index + 1}" }, protocol)
+        return V2GetServer(guidOf(uri), name.ifEmpty { "V2GET ${index + 1}" }, protocol, family = EConfigType.AETHER.name)
     }
 
     fun isV2GetGuid(guid: String?): Boolean = guid != null && guid.startsWith(GUID_PREFIX)
@@ -75,18 +139,63 @@ object V2GetConfigSource {
                 addProperty("guid", it.guid)
                 addProperty("name", it.name)
                 addProperty("protocol", it.protocol)
+                addProperty("family", it.family)
             })
         }
     }.toString()
 
+    /** The exit countries measured so far, by server id. */
+    private fun loadCountries(): Map<String, String> {
+        val json = MmkvManager.decodeSettingsString(KEY_COUNTRIES).orEmpty()
+        if (json.isEmpty()) return emptyMap()
+        return try {
+            JsonParser.parseString(json).asJsonObject.entrySet()
+                .mapNotNull { (guid, code) -> V2GetCountry.normalize(code.asString)?.let { guid to it } }
+                .toMap()
+        } catch (e: Exception) {
+            LogUtil.e(AppConfig.TAG, "V2GetConfigSource: stored countries not readable", e)
+            emptyMap()
+        }
+    }
+
+    private fun saveCountries(countries: Map<String, String>) {
+        val json = JsonObject().apply { countries.forEach { (guid, code) -> addProperty(guid, code) } }
+        MmkvManager.encodeSettings(KEY_COUNTRIES, json.toString())
+    }
+
+    /** Keeps the exit country measured for the server [guid]; the screens show it from then on. */
+    fun saveCountry(guid: String, code: String) {
+        val normalized = V2GetCountry.normalize(code) ?: return
+        if (loadServers().none { it.guid == guid }) return
+        saveCountries(loadCountries() + (guid to normalized))
+    }
+
+    /**
+     * The country the running tunnel exits in, asked of an address service through the tunnel itself, so it is the
+     * country a site sees and not where a configuration says its server is. Blocking; call it off the main thread.
+     */
+    fun detectExitCountry(): String? = try {
+        V2GetCountry.normalize(SpeedtestManager.getRemoteIPInfo()?.country)
+    } catch (e: Exception) {
+        LogUtil.e(AppConfig.TAG, "V2GetConfigSource: exit country lookup failed", e)
+        null
+    }
+
     fun loadServers(): List<V2GetServer> {
         val json = MmkvManager.decodeSettingsString(KEY_SERVERS).orEmpty()
         if (json.isEmpty()) return emptyList()
+        val countries = loadCountries()
         return try {
             JsonParser.parseString(json).asJsonArray.mapNotNull { element ->
                 val o = element.asJsonObject
                 val guid = o.get("guid")?.asString.orEmpty()
-                if (guid.isEmpty()) null else V2GetServer(guid, o.get("name")?.asString.orEmpty(), o.get("protocol")?.asString.orEmpty())
+                if (guid.isEmpty()) null else V2GetServer(
+                    guid,
+                    o.get("name")?.asString.orEmpty(),
+                    o.get("protocol")?.asString.orEmpty(),
+                    countries[guid].orEmpty(),
+                    o.get("family")?.asString?.takeIf { it.isNotBlank() } ?: EConfigType.AETHER.name,
+                )
             }
         } catch (e: Exception) {
             LogUtil.e(AppConfig.TAG, "V2GetConfigSource: stored server list not readable", e)
@@ -127,7 +236,7 @@ object V2GetConfigSource {
 
     private fun cachedUris(): List<String> {
         val list = MmkvManager.decodeSettingsString(KEY_CACHE_LIST).orEmpty()
-        if (list.isNotEmpty()) return extractAetherUris(list)
+        if (list.isNotEmpty()) return extractLinks(list)
         return MmkvManager.decodeSettingsString(KEY_CACHE).orEmpty().takeIf { it.isNotEmpty() }?.let { listOf(it) }.orEmpty()
     }
 
@@ -143,8 +252,8 @@ object V2GetConfigSource {
         var uris: List<String> = emptyList()
         var downloadError: String? = null
         try {
-            uris = extractAetherUris(download())
-            if (uris.isEmpty()) return "در فایل conf.json هیچ کانفیگ aether:// پیدا نشد."
+            uris = extractLinks(download())
+            if (uris.isEmpty()) return "در فایل conf.json هیچ کانفیگ قابل استفاده‌ای پیدا نشد."
         } catch (e: Exception) {
             downloadError = "${e.javaClass.simpleName}: ${e.message.orEmpty()}"
             LogUtil.e(AppConfig.TAG, "V2GetConfigSource: download failed", e)
@@ -158,25 +267,27 @@ object V2GetConfigSource {
         var parseError: String? = null
         uris.forEachIndexed { index, uri ->
             try {
-                val profile = AetherFmt.parse(uri)
+                val profile = parseLink(uri)
                 if (profile == null) {
-                    parseError = parseError ?: "کانفیگ aether معتبر نیست."
+                    parseError = parseError ?: "یکی از کانفیگ‌های فایل معتبر نیست."
                 } else {
-                    val server = describe(uri, index)
+                    val server = describe(uri, index, profile)
                     built.putIfAbsent(server.guid, server to profile)
                 }
             } catch (e: Exception) {
                 LogUtil.e(AppConfig.TAG, "V2GetConfigSource: link ${index + 1} not readable", e)
-                parseError = parseError ?: "کانفیگ aether خوانده نشد: ${e.javaClass.simpleName}: ${e.message.orEmpty()}"
+                parseError = parseError ?: "کانفیگ خوانده نشد: ${e.javaClass.simpleName}: ${e.message.orEmpty()}"
             }
         }
-        if (built.isEmpty()) return parseError ?: "کانفیگ aether معتبر نیست."
+        if (built.isEmpty()) return parseError ?: "هیچ کانفیگ معتبری در فایل نبود."
 
         return try {
             val stale = (loadServers().map { it.guid } + V2GetAuthManager.PROFILE_GUID).filter { it !in built }
             built.values.forEach { (server, profile) -> MmkvManager.encodeServerConfig(server.guid, profile) }
             stale.forEach { MmkvManager.tryRemoveServer(it) }
             MmkvManager.encodeSettings(KEY_SERVERS, encodeServers(built.values.map { it.first }))
+            // A server that left the file takes its measured country with it.
+            saveCountries(loadCountries().filterKeys { it in built })
             val chosen = MmkvManager.decodeSettingsString(KEY_SELECTED)
             val selected = if (chosen != null && chosen in built) chosen else built.keys.first()
             MmkvManager.encodeSettings(KEY_SELECTED, selected)
@@ -196,5 +307,6 @@ object V2GetConfigSource {
         MmkvManager.encodeSettings(KEY_SELECTED, "")
         MmkvManager.encodeSettings(KEY_CACHE_LIST, "")
         MmkvManager.encodeSettings(KEY_CACHE, "")
+        MmkvManager.encodeSettings(KEY_COUNTRIES, "")
     }
 }

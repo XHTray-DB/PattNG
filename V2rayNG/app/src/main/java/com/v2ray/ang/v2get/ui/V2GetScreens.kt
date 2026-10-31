@@ -10,6 +10,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -53,7 +56,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.v2ray.ang.R
+import com.v2ray.ang.v2get.V2GetCountry
 import com.v2ray.ang.v2get.V2GetQuota
+import com.v2ray.ang.v2get.V2GetServer
 import com.v2ray.ang.v2get.V2GetSession
 import java.text.NumberFormat
 import java.time.LocalDate
@@ -62,6 +67,37 @@ import java.util.Locale
 import kotlinx.coroutines.delay
 
 private fun gb(value: Double) = "%.1f".format(value)
+
+/**
+ * What each server is called on screen: its flag and country once the app has measured the country, else the
+ * name of its configuration. Two servers of one country are told apart by a number.
+ */
+internal fun serverTitles(servers: List<V2GetServer>): Map<String, String> {
+    val numbers = NumberFormat.getInstance(Locale("fa"))
+    val perCountry = servers.filter { it.countryCode.isNotBlank() }.groupBy { it.countryCode }
+    return servers.associate { server ->
+        val title = V2GetCountry.title(server.countryCode, server.name)
+        val peers = perCountry[server.countryCode].orEmpty()
+        server.guid to if (peers.size > 1) "$title ${numbers.format(peers.indexOf(server) + 1)}" else title
+    }
+}
+
+/** The flag of a server's country in a rounded box; the globe while the country is not known yet. */
+@Composable
+private fun FlagBox(countryCode: String, size: androidx.compose.ui.unit.Dp) {
+    if (countryCode.isBlank()) {
+        IconBox(R.drawable.ic_v2g_globe, background = V2G.LilacSoft, size = size)
+    } else {
+        Box(
+            Modifier.size(size).clip(RoundedCornerShape(16.dp)).background(V2G.LilacSoft),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(V2GetCountry.flag(countryCode), fontSize = (size.value * 0.55f).sp)
+        }
+    }
+}
+
+private fun familyLabel(family: String) = if (family == "AETHER") "Aether" else family
 
 // ---------------------------------------------------------------------------------------------
 // Connect
@@ -72,7 +108,7 @@ fun ConnectTab(state: V2GetUiState, vpnMode: Boolean, onToggle: () -> Unit) {
     val connection = state.connection
     val connected = connection == V2GetConnection.Connected
     val server = state.servers.firstOrNull { it.guid == state.selectedGuid } ?: state.servers.firstOrNull()
-    val serverName = server?.name ?: stringResource(R.string.v2get_server_name)
+    val serverName = server?.let { serverTitles(state.servers)[it.guid] } ?: stringResource(R.string.v2get_server_name)
     val protocolText = server?.protocol?.takeIf { it.isNotBlank() } ?: stringResource(R.string.v2get_protocol_value)
 
     Column(
@@ -108,7 +144,7 @@ fun ConnectTab(state: V2GetUiState, vpnMode: Boolean, onToggle: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconBox(R.drawable.ic_v2g_globe, background = V2G.LilacSoft, size = 48.dp)
+                FlagBox(server?.countryCode.orEmpty(), 48.dp)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(serverName, fontSize = 16.sp, fontWeight = FontWeight.Black, color = V2G.Ink)
@@ -313,23 +349,38 @@ fun ServersTab(state: V2GetUiState, onConnect: (String) -> Unit, onDisconnect: (
     val connected = state.connection == V2GetConnection.Connected
     val busy = state.connection != V2GetConnection.Disconnected
     val count = NumberFormat.getInstance(Locale("fa")).format(state.servers.size)
+    val titles = serverTitles(state.servers)
+    // The filter is one of the kinds the list holds; a kind that left the list falls back to all.
+    var filter by remember { mutableStateOf<String?>(null) }
+    val families = state.servers.map { it.family }.filter { it.isNotBlank() }.distinct()
+    val shown = state.servers.filter { filter == null || it.family == filter || filter !in families }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(14.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+            val allOn = filter == null || filter !in families
             Text(
                 stringResource(R.string.v2get_servers_filter_all, count),
-                color = Color.White,
+                color = if (allOn) Color.White else V2G.Ink,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.clip(RoundedCornerShape(50)).background(V2G.SoftBrandBrush).padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier.clip(RoundedCornerShape(50))
+                    .background(if (allOn) V2G.SoftBrandBrush else Brush.linearGradient(listOf(Color.White, Color.White)))
+                    .clickable { filter = null }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
             )
-            Text(
-                stringResource(R.string.v2get_servers_filter_aether),
-                color = V2G.Ink,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.clip(RoundedCornerShape(50)).background(Color.White).padding(horizontal = 16.dp, vertical = 8.dp),
-            )
+            if (families.size > 1) families.forEach { family ->
+                val on = filter == family
+                Text(
+                    familyLabel(family),
+                    color = if (on) Color.White else V2G.Ink,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clip(RoundedCornerShape(50))
+                        .background(if (on) V2G.SoftBrandBrush else Brush.linearGradient(listOf(Color.White, Color.White)))
+                        .clickable { filter = family }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
         }
         Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -343,18 +394,24 @@ fun ServersTab(state: V2GetUiState, onConnect: (String) -> Unit, onDisconnect: (
                 Text(stringResource(R.string.v2get_servers_empty), fontSize = 13.sp, color = V2G.Muted, modifier = Modifier.padding(18.dp))
             }
         }
-        state.servers.forEachIndexed { index, server ->
+        shown.forEachIndexed { index, server ->
             val isSelected = server.guid == state.selectedGuid
             val isRunning = isSelected && busy
             Spacer(Modifier.height(10.dp))
             GlassCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(18.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconBox(R.drawable.ic_v2g_globe, background = V2G.LilacSoft, size = 52.dp)
+                        FlagBox(server.countryCode, 52.dp)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(server.name, fontSize = 17.sp, fontWeight = FontWeight.Black, color = V2G.Ink)
-                            Text(stringResource(R.string.v2get_servers_unlimited), fontSize = 12.sp, color = V2G.Muted)
+                            Text(titles[server.guid] ?: server.name, fontSize = 17.sp, fontWeight = FontWeight.Black, color = V2G.Ink)
+                            Text(
+                                stringResource(
+                                    if (server.countryCode.isBlank()) R.string.v2get_servers_country_pending else R.string.v2get_servers_unlimited
+                                ),
+                                fontSize = 12.sp,
+                                color = V2G.Muted,
+                            )
                         }
                         if (index == 0) Pill(stringResource(R.string.v2get_servers_recommended), V2G.PinkSoft, V2G.Rose)
                     }
@@ -609,7 +666,16 @@ private fun UsageDonut(fraction: Float) {
 // ---------------------------------------------------------------------------------------------
 
 @Composable
-fun SettingsTab(versionName: String) {
+fun SettingsTab(
+    versionName: String,
+    perAppProxy: Boolean,
+    zeroDrop: Boolean,
+    dnsProtected: Boolean,
+    onSplitTunneling: () -> Unit,
+    onKillSwitch: () -> Unit,
+    onZeroDrop: (Boolean) -> Unit,
+    onDnsProtected: (Boolean) -> Unit,
+) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(14.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -638,13 +704,27 @@ fun SettingsTab(versionName: String) {
         SectionTitle(R.string.v2get_settings_network_section, R.drawable.ic_v2g_tune)
         GlassCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(horizontal = 18.dp, vertical = 4.dp)) {
-                SettingRow(R.drawable.ic_v2g_swap, R.string.v2get_settings_split_title, R.string.v2get_settings_split_body)
+                ActionRow(
+                    R.drawable.ic_v2g_swap, R.string.v2get_settings_split_title, R.string.v2get_settings_split_body,
+                    status = stringResource(if (perAppProxy) R.string.v2get_settings_state_on else R.string.v2get_settings_state_off),
+                    onClick = onSplitTunneling,
+                )
                 HorizontalDivider(color = V2G.Border)
-                SettingRow(R.drawable.ic_v2g_block, R.string.v2get_settings_kill_title, R.string.v2get_settings_kill_body)
+                ActionRow(
+                    R.drawable.ic_v2g_block, R.string.v2get_settings_kill_title, R.string.v2get_settings_kill_body,
+                    status = stringResource(R.string.v2get_settings_kill_open),
+                    onClick = onKillSwitch,
+                )
                 HorizontalDivider(color = V2G.Border)
-                SettingRow(R.drawable.ic_v2g_check_circle, R.string.v2get_settings_drop_title, R.string.v2get_settings_drop_body)
+                ToggleRow(
+                    R.drawable.ic_v2g_check_circle, R.string.v2get_settings_drop_title, R.string.v2get_settings_drop_body,
+                    checked = zeroDrop, onChecked = onZeroDrop,
+                )
                 HorizontalDivider(color = V2G.Border)
-                SettingRow(R.drawable.ic_v2g_lock, R.string.v2get_settings_dns_title, R.string.v2get_settings_dns_body)
+                ToggleRow(
+                    R.drawable.ic_v2g_lock, R.string.v2get_settings_dns_title, R.string.v2get_settings_dns_body,
+                    checked = dnsProtected, onChecked = onDnsProtected,
+                )
             }
         }
         Spacer(Modifier.height(18.dp))
@@ -682,9 +762,9 @@ private fun SectionTitle(text: Int, icon: Int) {
     }
 }
 
-/** A setting the design shows; its switch stays off and disabled until the setting is wired to the core. */
+/** A setting with a switch; the change is stored by [onChecked] and read back by the screen. */
 @Composable
-private fun SettingRow(icon: Int, title: Int, body: Int) {
+private fun ToggleRow(icon: Int, title: Int, body: Int, checked: Boolean, onChecked: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
         IconBox(icon, size = 40.dp)
         Spacer(Modifier.width(12.dp))
@@ -693,9 +773,26 @@ private fun SettingRow(icon: Int, title: Int, body: Int) {
             Text(stringResource(body), fontSize = 11.sp, color = V2G.Muted)
         }
         Spacer(Modifier.width(8.dp))
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Switch(checked = false, onCheckedChange = null, enabled = false, modifier = Modifier.alpha(0.6f))
-            Text(stringResource(R.string.v2get_settings_soon), fontSize = 10.sp, color = V2G.Muted, textAlign = TextAlign.Center)
+        Switch(checked = checked, onCheckedChange = onChecked)
+    }
+}
+
+/** A setting that is chosen on another screen: the row shows where it stands and opens that screen. */
+@Composable
+private fun ActionRow(icon: Int, title: Int, body: Int, status: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconBox(icon, size = 40.dp)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(stringResource(title), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = V2G.Ink)
+            Text(stringResource(body), fontSize = 11.sp, color = V2G.Muted)
         }
+        Spacer(Modifier.width(8.dp))
+        Text(status, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = V2G.Rose, textAlign = TextAlign.Center)
+        Spacer(Modifier.width(4.dp))
+        V2Icon(R.drawable.ic_v2g_chevron, V2G.Muted, 18.dp)
     }
 }

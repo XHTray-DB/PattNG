@@ -40,8 +40,8 @@
     <string name="v2get_servers_connect_here" translatable="false">اتصال به این سرور</string>
     <string name="v2get_servers_disconnect_here" translatable="false">قطع اتصال</string>
     <string name="v2get_servers_unlimited" translatable="false">سرور اختصاصی اشتراک شما</string>
-    <string name="v2get_failover_title" translatable="false">پروتکل محافظ سوییچ هوشمند (Zero-Drop)</string>
-    <string name="v2get_failover_body" translatable="false">سرورها بر اساس تنظیمات حساب شما از طرف پنل تعیین می‌شوند.</string>
+    <string name="v2get_failover_title" translatable="false">سوییچ هوشمند سرور (Zero-Drop)</string>
+    <string name="v2get_failover_body" translatable="false">با روشن بودن این گزینه در بخش تنظیمات، اگر اتصال برقرار نشود سرور بعدی خودکار امتحان می‌شود.</string>
 
     <string name="v2get_account_vip" translatable="false">کاربر VIP</string>
     <string name="v2get_account_sub_active" translatable="false">اشتراک ویژه V2GET</string>
@@ -69,13 +69,13 @@
     <string name="v2get_settings_network_section" translatable="false">تنظیمات کاربردی شبکه</string>
     <string name="v2get_settings_soon" translatable="false">به‌زودی</string>
     <string name="v2get_settings_split_title" translatable="false">تونل‌بندی انتخابی (Split Tunneling)</string>
-    <string name="v2get_settings_split_body" translatable="false">مستثنی کردن اپلیکیشن‌های بانکی و سرویس‌های داخلی از تونل</string>
+    <string name="v2get_settings_split_body" translatable="false">انتخاب اپ‌هایی که از تونل عبور می‌کنند یا از آن مستثنی می‌شوند (مثل اپ‌های بانکی)</string>
     <string name="v2get_settings_kill_title" translatable="false">قطع سراسری اینترنت (Kill Switch)</string>
-    <string name="v2get_settings_kill_body" translatable="false">مسدودسازی هوشمند ترافیک در صورت قطع موقت اتصال تونل</string>
+    <string name="v2get_settings_kill_body" translatable="false">قطع کامل اینترنت گوشی وقتی تونل قطع شود؛ از «VPN همیشه روشن» و «مسدود کردن اتصال‌های بدون VPN» اندروید فعال می‌شود</string>
     <string name="v2get_settings_drop_title" translatable="false">سوییچ خودکار بدون قطعی (Zero-Drop)</string>
-    <string name="v2get_settings_drop_body" translatable="false">انتقال آنی به سرور رزرو هنگام افت شدید پکت یا مسدودی پورت</string>
+    <string name="v2get_settings_drop_body" translatable="false">اگر اتصال به یک سرور برقرار نشد، برنامه خودکار سرور بعدی را امتحان می‌کند</string>
     <string name="v2get_settings_dns_title" translatable="false">پیشگیری از نشت دی‌ان‌اس (DNS Leak)</string>
-    <string name="v2get_settings_dns_body" translatable="false">رمزنگاری سرتاسری درخواست‌های سامانه نام دامنه</string>
+    <string name="v2get_settings_dns_body" translatable="false">پاسخ همهٔ درخواست‌های دامنه داخل تونل و با DNS رمزنگاری‌شده (DoH) داده می‌شود؛ از اتصال بعدی اعمال می‌شود</string>
     <string name="v2get_settings_about_section" translatable="false">دربارهٔ برنامه و مجوزها</string>
     <string name="v2get_settings_version" translatable="false">V2GET نسخه اندروید</string>
     <string name="v2get_settings_version_value" translatable="false">نسخه %1$s</string>
@@ -101,4 +101,11 @@
     <string name="v2get_error_title" translatable="false">علت خطا</string>
     <string name="v2get_error_ok" translatable="false">باشه</string>
     <string name="v2get_error_unknown" translatable="false">علت مشخصی گزارش نشد؛ لاگ برنامه را ببینید.</string>
+    <string name="v2get_servers_country_pending" translatable="false">کشور پس از اولین اتصال تشخیص داده می‌شود</string>
+    <string name="v2get_settings_state_on" translatable="false">فعال</string>
+    <string name="v2get_settings_state_off" translatable="false">غیرفعال</string>
+    <string name="v2get_settings_kill_open" translatable="false">باز کردن</string>
+    <string name="v2get_settings_kill_unavailable" translatable="false">تنظیمات VPN در این گوشی باز نشد؛ آن را از تنظیمات اندروید باز کنید.</string>
+    <string name="v2get_settings_applies_next" translatable="false">از اتصال بعدی اعمال می‌شود</string>
+    <string name="v2get_zero_drop_switching" translatable="false">اتصال برقرار نشد؛ سرور بعدی امتحان می‌شود…</string>
 </resources>

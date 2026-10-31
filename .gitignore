@@ -2,6 +2,12 @@
 *.dat
 *.jks
 
+# ...but the geo files the app ships are part of the project: a user must never have to download them.
+# Fill them once with `bash fetch-geo.sh` and commit them (the Psiphon list stays build-fetched).
+!V2rayNG/app/src/main/assets/geosite.dat
+!V2rayNG/app/src/main/assets/geoip.dat
+!V2rayNG/app/src/main/assets/geoip-only-cn-private.dat
+
 # Ignore output JSON file
 V2rayNG/app/release/output.json
 

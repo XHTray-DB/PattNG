@@ -232,3 +232,23 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 }
+
+// The geo files are shipped inside the APK so that no user has to download them (the core refuses any routing
+// that names a geosite:/geoip: list whose file is missing). A release without them is refused here, not found
+// out by a user: run `bash fetch-geo.sh` once and commit the files (CI runs it before every build).
+val geoAssets = listOf("geosite.dat", "geoip.dat", "geoip-only-cn-private.dat")
+val checkGeoAssets = tasks.register("checkGeoAssets") {
+    val assetsDir = layout.projectDirectory.dir("src/main/assets")
+    inputs.files(geoAssets.map { assetsDir.file(it).asFile })
+    doLast {
+        val missing = geoAssets.filter { name -> assetsDir.file(name).asFile.let { !it.isFile || it.length() < 1000 } }
+        if (missing.isNotEmpty()) {
+            throw GradleException(
+                "Geo files missing from src/main/assets: ${missing.joinToString()}. " +
+                    "Run `bash fetch-geo.sh` from the repository root once, then commit them."
+            )
+        }
+    }
+}
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("ReleaseAssets") }
+    .configureEach { dependsOn(checkGeoAssets) }

@@ -2,6 +2,7 @@ package com.v2ray.ang.v2get
 
 import com.v2ray.ang.AngApplication
 import com.v2ray.ang.AppConfig
+import com.v2ray.ang.handler.SettingsManager
 import com.v2ray.ang.util.LogUtil
 import com.v2ray.ang.util.Utils
 import java.io.File
@@ -16,6 +17,10 @@ import java.net.URL
  * read. A build that carries no geo files (see fetch-geo.sh) would then never connect, so before a connection
  * starts the missing files are fetched into the asset folder the core reads. A file already there, the user's
  * own included, is never replaced.
+ *
+ * The files come with the app: a build ships them in its assets (see fetch-geo.sh), and the first thing [ensure]
+ * does is copy them into the asset folder. That copy used to be done only by the classic main screen, which a
+ * V2GET user never opens, so a fresh install had no files and went to the network for them.
  *
  * One call spends at most [BUDGET_SECONDS]. A download that did not finish keeps its part file and the next
  * call goes on from where it stopped, so a slow line gets there over a few connection attempts.
@@ -42,8 +47,14 @@ object V2GetGeoFiles {
      * @return null when every file is there, otherwise the reason, in text fit to show.
      */
     fun ensure(): String? {
-        val dir = File(Utils.userAssetPath(AngApplication.application))
+        val app = AngApplication.application
+        val dir = File(Utils.userAssetPath(app))
         if (dir.path.isEmpty()) return null
+        if (missing(dir).isEmpty()) return null
+
+        // The copy of the bundled files skips a file that exists, so an empty leftover is cleared first.
+        SOURCES.map { File(dir, it.name) }.filter { it.isFile && it.length() < 1 }.forEach { it.delete() }
+        SettingsManager.initAssets(app, app.assets)
         val absent = missing(dir)
         if (absent.isEmpty()) return null
 
