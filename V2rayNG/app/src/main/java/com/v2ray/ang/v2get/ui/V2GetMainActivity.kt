@@ -72,6 +72,10 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
     private var perAppProxy by mutableStateOf(false)
     private var zeroDrop by mutableStateOf(false)
     private var dnsProtected by mutableStateOf(true)
+    private var autoBest by mutableStateOf(true)
+
+    /** The start that is measuring servers or waiting for the VPN permission; a tap on the button while it runs ends it. */
+    private var startJob: kotlinx.coroutines.Job? = null
 
     /**
      * Zero-Drop: the servers that already failed to start in the current series of attempts, so each server is
@@ -171,7 +175,7 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
                     Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())
                 ) {
                     when (tab) {
-                        V2GetTab.Connect -> ConnectTab(state, vpnMode, ::toggleConnection)
+                        V2GetTab.Connect -> ConnectTab(state, vpnMode, ::toggleConnection, onChangeServer = { tab = V2GetTab.Servers })
                         V2GetTab.Servers -> ServersTab(state, ::connectTo, ::toggleConnection)
                         V2GetTab.Account -> AccountTab(
                             session = state.session,
@@ -187,6 +191,11 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
                             perAppProxy = perAppProxy,
                             zeroDrop = zeroDrop,
                             dnsProtected = dnsProtected,
+                            autoBest = autoBest,
+                            onAutoBest = { on ->
+                                V2GetSettings.setAutoBest(on)
+                                readSettings()
+                            },
                             onSplitTunneling = { startActivity(Intent(this@V2GetMainActivity, PerAppProxyActivity::class.java)) },
                             onKillSwitch = ::openVpnSettings,
                             onZeroDrop = { on ->
@@ -212,9 +221,14 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
     }
 
     private fun toggleConnection() {
-        if (viewModel.uiState.value.connection == V2GetConnection.Disconnected) {
+        val state = viewModel.uiState.value
+        if (state.connection == V2GetConnection.Disconnected) {
             failedServers.clear()
-            requestStart()
+            requestStart(auto = true)
+        } else if (state.phase != V2GetPhase.None) {
+            // Still measuring the servers: nothing runs yet, so the tap ends the start itself.
+            startJob?.cancel()
+            viewModel.cancelStart()
         } else {
             LauncherManager.stopService(this)
             // A daemon that died takes no stop and answers nothing; asking for its state lets that silence show as stopped.
@@ -239,6 +253,7 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
         perAppProxy = V2GetSettings.perAppProxy()
         zeroDrop = V2GetSettings.zeroDrop()
         dnsProtected = V2GetSettings.dnsProtected()
+        autoBest = V2GetSettings.autoBest()
     }
 
     /**
@@ -274,10 +289,12 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
         return true
     }
 
-    private fun requestStart() {
-        lifecycleScope.launch {
+    /** [auto]: the connection is not aimed at one server, so the best one is picked first (when that switch is on). */
+    private fun requestStart(auto: Boolean = false) {
+        startJob?.cancel()
+        startJob = lifecycleScope.launch {
             // The account is checked against the panel and the configuration read again before anything starts.
-            if (!viewModel.prepareStart()) return@launch
+            if (!viewModel.prepareStart(auto)) return@launch
             if (!SettingsManager.isVpnMode()) {
                 startCore()
                 return@launch

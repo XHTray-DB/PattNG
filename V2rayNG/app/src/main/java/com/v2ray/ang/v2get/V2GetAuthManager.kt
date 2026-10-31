@@ -159,12 +159,12 @@ object V2GetAuthManager {
         MmkvManager.encodeSettings(KEY_PENDING, array.toString())
     }
 
-    /** Writes a finished session's traffic down and sends everything waiting. Blocking. */
+    /** Writes one report of a session's traffic down ([seq] counts the session's reports from 0) and sends everything waiting. Blocking. */
     @Synchronized
-    fun reportUsage(sessionId: String, up: Long, down: Long) {
+    fun reportUsage(sessionId: String, seq: Int, up: Long, down: Long) {
         if (up > 0 || down > 0) {
             val list = readPending()
-            list.put(org.json.JSONObject().put("sid", sessionId).put("seq", 0).put("up", up).put("down", down))
+            list.put(org.json.JSONObject().put("sid", sessionId).put("seq", seq).put("up", up).put("down", down))
             writePending(list)
         }
         flushPending()

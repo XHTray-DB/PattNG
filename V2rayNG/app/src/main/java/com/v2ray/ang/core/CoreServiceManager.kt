@@ -39,6 +39,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -52,6 +53,7 @@ import java.net.InetSocketAddress
 object CoreServiceManager {
 
     private const val AETHER_WARM_UP_MS = 30_000L
+    private const val TRAFFIC_POLL_MS = 3_000L
 
     private val coreController: CoreController = CoreNativeManager.newCoreController(CoreCallback())
     private val mMsgReceive = ReceiveMessageHandler()
@@ -69,6 +71,9 @@ object CoreServiceManager {
 
     /** Owns the Aether warm-up wait; cancelled on every start and stop so a stale wait cannot report. */
     private val aetherScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // V2GET: owns the loop that reads the core's traffic counters for the account's usage; ended with the connection.
+    private val trafficScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var aetherWarmUpJob: Job? = null
 
     /** Set once an Aether exit has stopped the service, so a second report of the same exit is a no-op. */
@@ -169,6 +174,7 @@ object CoreServiceManager {
         currentVpnInterface = vpnInterface
         launchCore(service, vpnInterface)
         V2GetTraffic.begin(MmkvManager.getSelectServer())
+        startTrafficPoll()
         startNetworkMonitor(service)
     }
 
@@ -431,6 +437,7 @@ object CoreServiceManager {
      */
     fun stopCoreLoop(): Boolean {
         connectionTestScope.coroutineContext.cancelChildren()
+        trafficScope.coroutineContext.cancelChildren()
         val service = getService() ?: return false
 
         networkMonitor?.unregister()
@@ -603,6 +610,7 @@ object CoreServiceManager {
                     "guid=${MmkvManager.getSelectServer()}"
             )
             NotificationManager.cancelNotification()
+            trafficScope.coroutineContext.cancelChildren()
             cancelAetherWarmUp()
             AetherCoreManager.stop()
             try {
@@ -615,6 +623,27 @@ object CoreServiceManager {
             browserDialer = null
             // The reload may have announced a running or connecting service after the stop was reported.
             MessageHelper.sendMsg2UI(service, AppConfig.MSG_STATE_STOP_SUCCESS, "")
+        }
+    }
+
+    /**
+     * V2GET: reads the core's traffic counters every few seconds, so the account's usage is counted whether or not the
+     * speed notification runs. When it runs it reads them itself, and a second reader would only take half of
+     * each interval's figures away from its speed display (the totals added up here would be the same either way).
+     */
+    private fun startTrafficPoll() {
+        trafficScope.coroutineContext.cancelChildren()
+        if (!V2GetTraffic.statsNeeded()) return
+        trafficScope.launch {
+            while (isActive) {
+                delay(TRAFFIC_POLL_MS)
+                if (MmkvManager.decodeSettingsBool(AppConfig.PREF_SPEED_ENABLED) == true) continue
+                try {
+                    queryAllOutboundTrafficStats()
+                } catch (e: Exception) {
+                    LogUtil.e(AppConfig.TAG, "StartCore-Manager: traffic query failed", e)
+                }
+            }
         }
     }
 

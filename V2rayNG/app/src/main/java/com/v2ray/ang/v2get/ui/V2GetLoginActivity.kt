@@ -158,10 +158,7 @@ class V2GetLoginActivity : BaseComponentActivity() {
                 Spacer(Modifier.width(8.dp))
                 Text(stringResource(R.string.v2get_login_top), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = V2G.Ink)
                 Spacer(Modifier.weight(1f))
-                Box(
-                    Modifier.size(40.dp).clip(CircleShape).background(V2G.BrandBrush),
-                    contentAlignment = Alignment.Center,
-                ) { V2Icon(R.drawable.ic_v2g_person, Color.White, 20.dp) }
+                V2Logo(48.dp)
             }
             Spacer(Modifier.height(18.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

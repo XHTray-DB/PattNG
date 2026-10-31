@@ -131,14 +131,7 @@ fun V2GetTopBar(connected: Boolean, onOpenAccount: () -> Unit) {
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(44.dp)
-                .shadow(6.dp, RoundedCornerShape(14.dp), spotColor = V2G.Pink)
-                .clip(RoundedCornerShape(14.dp))
-                .background(V2G.SoftBrandBrush),
-        ) { V2Icon(R.drawable.ic_v2g_lock, Color.White, 22.dp) }
+        V2Logo(48.dp)
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(stringResource(R.string.v2get_brand), fontSize = 20.sp, fontWeight = FontWeight.Black, color = V2G.Ink)
@@ -215,4 +208,14 @@ private fun NavItem(
             color = tint,
         )
     }
+}
+
+/** The V2GET logo, the app's icon, wherever the screens need the brand mark. It is decorative: the brand name beside it names it. */
+@Composable
+fun V2Logo(size: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier) {
+    androidx.compose.foundation.Image(
+        painter = painterResource(R.drawable.v2get_logo),
+        contentDescription = null,
+        modifier = modifier.size(size),
+    )
 }

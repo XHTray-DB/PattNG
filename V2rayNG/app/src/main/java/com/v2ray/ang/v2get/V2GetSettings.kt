@@ -18,6 +18,15 @@ object V2GetSettings {
         MmkvManager.encodeSettings(KEY_ZERO_DROP, on)
     }
 
+    /** Auto-select: a connection started with the button measures the servers and goes to the best. On until switched off. */
+    const val KEY_AUTO_BEST = "V2GET_AUTO_BEST"
+
+    fun autoBest(): Boolean = MmkvManager.decodeSettingsBool(KEY_AUTO_BEST, true)
+
+    fun setAutoBest(on: Boolean) {
+        MmkvManager.encodeSettings(KEY_AUTO_BEST, on)
+    }
+
     /** Split tunneling is the per-app proxy of the app: only the chosen apps (or all but them) use the tunnel. */
     fun perAppProxy(): Boolean = MmkvManager.decodeSettingsBool(AppConfig.PREF_PER_APP_PROXY, false)
 

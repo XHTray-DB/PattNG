@@ -108,4 +108,10 @@
     <string name="v2get_settings_kill_unavailable" translatable="false">تنظیمات VPN در این گوشی باز نشد؛ آن را از تنظیمات اندروید باز کنید.</string>
     <string name="v2get_settings_applies_next" translatable="false">از اتصال بعدی اعمال می‌شود</string>
     <string name="v2get_zero_drop_switching" translatable="false">اتصال برقرار نشد؛ سرور بعدی امتحان می‌شود…</string>
+    <string name="v2get_phase_tcping" translatable="false">در حال تست tcping همه سرورها…</string>
+    <string name="v2get_phase_real" translatable="false">تست تأخیر واقعی (ریلی دیلی) سرورهای سالم…</string>
+    <string name="v2get_used_this_connection" translatable="false">مصرف این اتصال</string>
+    <string name="v2get_change_server" translatable="false">تغییر سرور</string>
+    <string name="v2get_settings_auto_title" translatable="false">انتخاب خودکار بهترین سرور</string>
+    <string name="v2get_settings_auto_body" translatable="false">هنگام اتصال، اول tcping همه سرورها گرفته می‌شود، بعد از سرورهای سالم تأخیر واقعی گرفته می‌شود و به بهترین وصل می‌شود.</string>
 </resources>

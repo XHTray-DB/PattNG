@@ -106,7 +106,9 @@ object NotificationManager {
 
         mBuilder = NotificationCompat.Builder(service, channelId)
             .setSmallIcon(R.drawable.ic_stat_name)
-            .setContentTitle(currentConfig?.remarks ?: service.getString(R.string.app_name))
+            // V2GET: the notification is the app's own, named and drawn as V2GET; the server stays a sub-line.
+            .setContentTitle(service.getString(R.string.app_name))
+            .setSubText(currentConfig?.remarks?.takeIf { it.isNotBlank() })
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .setShowWhen(false)
@@ -198,13 +200,8 @@ object NotificationManager {
     private fun updateNotification(contentText: String?, proxyTraffic: Long, directTraffic: Long) {
         // Taken once: the speed job runs on its own thread, and a stop clears the builder meanwhile.
         val builder = mBuilder ?: return
-        if (proxyTraffic < NOTIFICATION_ICON_THRESHOLD && directTraffic < NOTIFICATION_ICON_THRESHOLD) {
-            builder.setSmallIcon(R.drawable.ic_stat_name)
-        } else if (proxyTraffic > directTraffic) {
-            builder.setSmallIcon(R.drawable.ic_stat_proxy)
-        } else {
-            builder.setSmallIcon(R.drawable.ic_stat_direct)
-        }
+        // V2GET: the status-bar icon stays the V2GET logo whatever the traffic; the stock arrow icons are not used.
+        builder.setSmallIcon(R.drawable.ic_stat_name)
         lastContentText = contentText
         val content = composeContentText()
         builder.setStyle(NotificationCompat.BigTextStyle().bigText(content))

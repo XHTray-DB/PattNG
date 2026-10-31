@@ -8,6 +8,14 @@ import com.v2ray.ang.v2get.V2GetAuthManager
 import com.v2ray.ang.v2get.V2GetConfigSource
 import com.v2ray.ang.v2get.V2GetGeoFiles
 import com.v2ray.ang.v2get.V2GetServer
+import com.v2ray.ang.AppConfig
+import com.v2ray.ang.dto.TestServiceMessage
+import com.v2ray.ang.v2get.V2GetSettings
+import com.v2ray.ang.v2get.V2GetTraffic
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -32,8 +40,14 @@ sealed class V2GetNotice {
     data class Failure(val reason: String) : V2GetNotice()
 }
 
+/** What a connection start is doing before the core starts: the servers are measured to find the best one. */
+enum class V2GetPhase { None, Tcping, RealPing }
+
 data class V2GetUiState(
     val session: V2GetSession? = null,
+    /** The traffic of the running connection: what it has used and its speed. */
+    val live: V2GetTraffic.Live = V2GetTraffic.Live(),
+    val phase: V2GetPhase = V2GetPhase.None,
     val connection: V2GetConnection = V2GetConnection.Disconnected,
     val notice: V2GetNotice? = null,
     val servers: List<V2GetServer> = emptyList(),
@@ -58,18 +72,50 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
     /** The measuring of the exit country of the running connection; ended with the connection. */
     private var countryJob: Job? = null
 
+    /** Reads the traffic figures of the running connection; ended with the connection. */
+    private var liveJob: Job? = null
+
+    /** The server tests waiting for the test service to finish, by request id: true when it finished, false when it was cancelled. */
+    private val pendingTests = ConcurrentHashMap<String, CompletableDeferred<Boolean>>()
+
     init {
         viewModelScope.launch {
             dataSource.mainServiceEvent.collect { event ->
                 _uiState.update { reduce(it, event) }
                 when (event) {
-                    MainServiceEvent.StateRunning, MainServiceEvent.StateStartSuccess -> detectCountry()
-                    MainServiceEvent.StateNotRunning, MainServiceEvent.StateStopSuccess, is MainServiceEvent.StateStartFailure -> countryJob?.cancel()
+                    MainServiceEvent.StateRunning, MainServiceEvent.StateStartSuccess -> {
+                        detectCountry()
+                        startLivePolling()
+                    }
+                    MainServiceEvent.StateNotRunning, MainServiceEvent.StateStopSuccess, is MainServiceEvent.StateStartFailure -> {
+                        countryJob?.cancel()
+                        liveJob?.cancel()
+                        _uiState.update { it.copy(live = V2GetTraffic.Live(), session = V2GetSession.load()) }
+                    }
+                    is MainServiceEvent.MeasureConfigFinish -> pendingTests.remove(event.requestId)?.complete(true)
+                    is MainServiceEvent.MeasureConfigCancelled -> pendingTests.remove(event.requestId)?.complete(false)
                     else -> Unit
                 }
             }
         }
         dataSource.queryServiceState()
+    }
+
+    /**
+     * While the connection runs, the traffic it has used and its speed are read every second, and the account's
+     * figures every few seconds: the core reports usage to the panel as it goes, and the screens show what came back.
+     */
+    private fun startLivePolling() {
+        liveJob?.cancel()
+        liveJob = viewModelScope.launch {
+            var tick = 0
+            while (true) {
+                val live = withContext(Dispatchers.IO) { V2GetTraffic.live() }
+                val refreshSession = tick++ % SESSION_REFRESH_TICKS == 0
+                _uiState.update { it.copy(live = live, session = if (refreshSession) V2GetSession.load() else it.session) }
+                delay(1_000L)
+            }
+        }
     }
 
     /**
@@ -145,7 +191,7 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
      * reason in a notice, when the connection must not start. A panel that cannot be reached does not block:
      * the figures stored at the last sync decide then, as [beginStart] checks.
      */
-    suspend fun prepareStart(): Boolean {
+    suspend fun prepareStart(auto: Boolean = false): Boolean {
         _uiState.update { it.copy(connection = V2GetConnection.Connecting) }
         val failure: String? = withContext(Dispatchers.IO) {
             V2GetAuthManager.flushPending()
@@ -160,8 +206,63 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
             _uiState.update { it.copy(connection = V2GetConnection.Disconnected, notice = V2GetNotice.Failure(failure)) }
             return false
         }
+        // A connection the person did not aim at one server picks the best: every server is measured first.
+        if (auto && V2GetSettings.autoBest()) selectBestServer()
         _uiState.update { it.copy(servers = V2GetConfigSource.loadServers(), selectedGuid = V2GetConfigSource.selectedGuid()) }
         return beginStart()
+    }
+
+    /**
+     * Measures the servers and selects the best: every server is tried with a TCP connection first, the ones that
+     * answered get the real delay test (a request through the server itself), and the one with the lowest delay wins.
+     * A server that cannot be tested by TCP (UDP based) is not dropped by the first step. When nothing could be
+     * measured, the selection stays as it was.
+     */
+    private suspend fun selectBestServer() {
+        val servers = V2GetConfigSource.loadServers()
+        if (servers.size < 2) return
+        try {
+            val all = servers.map { it.guid }
+            dataSource.clearAllTestDelayResults(all)
+            _uiState.update { it.copy(phase = V2GetPhase.Tcping) }
+            runServerTest(all, onlyTcp = true, budgetMs = TCP_BUDGET_MS)
+            val tcp = readDelays(all)
+
+            val alive = tcpSurvivors(servers, tcp)
+            dataSource.clearAllTestDelayResults(alive)
+            _uiState.update { it.copy(phase = V2GetPhase.RealPing) }
+            runServerTest(alive, onlyTcp = false, budgetMs = REAL_BUDGET_MS)
+            val real = readDelays(alive)
+
+            bestServer(servers, tcp, real)?.let { selectServer(it) }
+        } finally {
+            _uiState.update { it.copy(phase = V2GetPhase.None) }
+        }
+    }
+
+    private suspend fun readDelays(guids: List<String>): Map<String, Long> = withContext(Dispatchers.IO) {
+        guids.associateWith { dataSource.decodeAffiliationInfo(it)?.testDelayMillis ?: -1L }
+    }
+
+    /** Asks the test service to measure [guids] and waits for it, at most [budgetMs]; what did not finish by then is cancelled. */
+    private suspend fun runServerTest(guids: List<String>, onlyTcp: Boolean, budgetMs: Long) {
+        val requestId = UUID.randomUUID().toString()
+        val done = CompletableDeferred<Boolean>()
+        pendingTests[requestId] = done
+        dataSource.sendMsg2TestService(
+            TestServiceMessage(AppConfig.MSG_MEASURE_CONFIG_START, serverGuids = guids, onlyTcp = onlyTcp),
+            requestId,
+        )
+        val finished = withTimeoutOrNull(budgetMs) { done.await() }
+        pendingTests.remove(requestId)
+        if (finished == null) dataSource.cancelAllPing()
+    }
+
+    /** The person ended a start that was still measuring servers: the tests stop and the screen is idle again. */
+    fun cancelStart() {
+        dataSource.cancelAllPing()
+        pendingTests.values.forEach { it.complete(false) }
+        _uiState.update { it.copy(connection = V2GetConnection.Disconnected, phase = V2GetPhase.None) }
     }
 
     /** A start that did not go ahead after [beginStart], such as a refused VPN permission. */
@@ -184,13 +285,43 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
 
     companion object {
         private const val COUNTRY_ATTEMPTS = 4
+        private const val SESSION_REFRESH_TICKS = 5
+        private const val TCP_BUDGET_MS = 10_000L
+        private const val REAL_BUDGET_MS = 30_000L
+
+        /** The kinds of server a TCP connection says nothing about: they speak UDP. */
+        private val TCP_UNTESTABLE = setOf("HYSTERIA2", "WIREGUARD")
+
+        /**
+         * The servers worth the real delay test: those whose TCP test answered, and those a TCP test cannot judge.
+         * When every one failed, every one stays: a failed test is not proof when the phone's own network is the problem.
+         */
+        internal fun tcpSurvivors(servers: List<V2GetServer>, tcp: Map<String, Long>): List<String> {
+            val alive = servers.filter { (tcp[it.guid] ?: -1L) > 0L || it.family in TCP_UNTESTABLE }.map { it.guid }
+            return alive.ifEmpty { servers.map { it.guid } }
+        }
+
+        /**
+         * The best server: the lowest real delay among the survivors; failing any, the lowest TCP time; failing any,
+         * the first survivor. Null only without servers.
+         */
+        internal fun bestServer(servers: List<V2GetServer>, tcp: Map<String, Long>, real: Map<String, Long>): String? {
+            if (servers.isEmpty()) return null
+            val alive = tcpSurvivors(servers, tcp)
+            alive.filter { (real[it] ?: -1L) > 0L }.minByOrNull { real.getValue(it) }?.let { return it }
+            alive.filter { (tcp[it] ?: -1L) > 0L }.minByOrNull { tcp.getValue(it) }?.let { return it }
+            return alive.first()
+        }
 
         internal fun reduce(state: V2GetUiState, event: MainServiceEvent): V2GetUiState = when (event) {
             MainServiceEvent.StateRunning,
             MainServiceEvent.StateStartSuccess -> state.copy(connection = V2GetConnection.Connected)
 
+            // "Not running" is also what a state query answers while the servers are still being measured for the
+            // start: nothing runs yet, and the start under way is not over.
             MainServiceEvent.StateNotRunning,
-            MainServiceEvent.StateStopSuccess -> state.copy(connection = V2GetConnection.Disconnected)
+            MainServiceEvent.StateStopSuccess ->
+                if (state.phase != V2GetPhase.None) state else state.copy(connection = V2GetConnection.Disconnected)
 
             is MainServiceEvent.StateConnecting -> state.copy(connection = V2GetConnection.Connecting)
 

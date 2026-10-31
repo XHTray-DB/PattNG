@@ -66,6 +66,13 @@ import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlinx.coroutines.delay
 
+/** A byte count in the unit that reads best: KB, MB or GB. */
+internal fun bytesText(bytes: Long): String = when {
+    bytes >= 1_000_000_000L -> "%.2f GB".format(bytes / 1e9)
+    bytes >= 1_000_000L -> "%.1f MB".format(bytes / 1e6)
+    else -> "%d KB".format(bytes / 1_000L)
+}
+
 private fun gb(value: Double) = "%.1f".format(value)
 
 /**
@@ -104,7 +111,7 @@ private fun familyLabel(family: String) = if (family == "AETHER") "Aether" else 
 // ---------------------------------------------------------------------------------------------
 
 @Composable
-fun ConnectTab(state: V2GetUiState, vpnMode: Boolean, onToggle: () -> Unit) {
+fun ConnectTab(state: V2GetUiState, vpnMode: Boolean, onToggle: () -> Unit, onChangeServer: () -> Unit = {}) {
     val connection = state.connection
     val connected = connection == V2GetConnection.Connected
     val server = state.servers.firstOrNull { it.guid == state.selectedGuid } ?: state.servers.firstOrNull()
@@ -116,7 +123,7 @@ fun ConnectTab(state: V2GetUiState, vpnMode: Boolean, onToggle: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.height(14.dp))
-        StatusCard(connection)
+        StatusCard(connection, state.phase)
         Spacer(Modifier.height(18.dp))
         PowerButton(connection, onToggle)
         Spacer(Modifier.height(16.dp))
@@ -135,13 +142,17 @@ fun ConnectTab(state: V2GetUiState, vpnMode: Boolean, onToggle: () -> Unit) {
         }
         Spacer(Modifier.height(18.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-            SpeedCard(R.string.v2get_download, R.drawable.ic_v2g_arrow_down, Modifier.weight(1f))
-            SpeedCard(R.string.v2get_upload, R.drawable.ic_v2g_arrow_up, Modifier.weight(1f))
+            SpeedCard(R.string.v2get_download, R.drawable.ic_v2g_arrow_down, connected, state.live.downSpeed, state.live.down, Modifier.weight(1f))
+            SpeedCard(R.string.v2get_upload, R.drawable.ic_v2g_arrow_up, connected, state.live.upSpeed, state.live.up, Modifier.weight(1f))
         }
         Spacer(Modifier.height(14.dp))
+        // The whole card opens the server list: the swap icon on it is what the person taps to change the server.
         GlassCard(Modifier.fillMaxWidth()) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClickLabel = stringResource(R.string.v2get_change_server), role = Role.Button, onClick = onChangeServer)
+                    .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 FlagBox(server?.countryCode.orEmpty(), 48.dp)
@@ -200,7 +211,7 @@ private fun DetailLine(label: Int, icon: Int, trailing: @Composable () -> Unit) 
 }
 
 @Composable
-private fun StatusCard(connection: V2GetConnection) {
+private fun StatusCard(connection: V2GetConnection, phase: V2GetPhase = V2GetPhase.None) {
     val connected = connection == V2GetConnection.Connected
     GlassCard(Modifier.fillMaxWidth()) {
         Row(
@@ -230,7 +241,11 @@ private fun StatusCard(connection: V2GetConnection) {
                     stringResource(
                         when (connection) {
                             V2GetConnection.Connected -> R.string.v2get_conn_connected_sub
-                            V2GetConnection.Connecting -> R.string.v2get_conn_connecting_sub
+                            V2GetConnection.Connecting -> when (phase) {
+                                V2GetPhase.Tcping -> R.string.v2get_phase_tcping
+                                V2GetPhase.RealPing -> R.string.v2get_phase_real
+                                V2GetPhase.None -> R.string.v2get_conn_connecting_sub
+                            }
                             V2GetConnection.Disconnected -> R.string.v2get_conn_disconnected_sub
                         }
                     ),
@@ -317,7 +332,7 @@ private fun PowerButton(connection: V2GetConnection, onToggle: () -> Unit) {
 }
 
 @Composable
-private fun SpeedCard(label: Int, icon: Int, modifier: Modifier) {
+private fun SpeedCard(label: Int, icon: Int, connected: Boolean, speed: Long, total: Long, modifier: Modifier) {
     GlassCard(modifier) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -330,12 +345,22 @@ private fun SpeedCard(label: Int, icon: Int, modifier: Modifier) {
             }
             Spacer(Modifier.height(14.dp))
             Row(verticalAlignment = Alignment.Bottom) {
-                Text(stringResource(R.string.v2get_no_value), fontSize = 28.sp, fontWeight = FontWeight.Black, color = V2G.Ink)
+                Text(
+                    if (connected) "%.2f".format(speed / 1_000_000.0) else stringResource(R.string.v2get_no_value),
+                    fontSize = 28.sp, fontWeight = FontWeight.Black, color = V2G.Ink,
+                )
                 Spacer(Modifier.width(4.dp))
                 Text(stringResource(R.string.v2get_unit_mbps), fontSize = 11.sp, color = V2G.Muted, modifier = Modifier.padding(bottom = 4.dp))
             }
             Spacer(Modifier.height(10.dp))
             Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)).background(V2G.PinkSoft))
+            if (connected) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    stringResource(R.string.v2get_used_this_connection) + ": " + bytesText(total),
+                    fontSize = 11.sp, color = V2G.Muted,
+                )
+            }
         }
     }
 }
@@ -671,6 +696,8 @@ fun SettingsTab(
     perAppProxy: Boolean,
     zeroDrop: Boolean,
     dnsProtected: Boolean,
+    autoBest: Boolean = true,
+    onAutoBest: (Boolean) -> Unit = {},
     onSplitTunneling: () -> Unit,
     onKillSwitch: () -> Unit,
     onZeroDrop: (Boolean) -> Unit,
@@ -714,6 +741,11 @@ fun SettingsTab(
                     R.drawable.ic_v2g_block, R.string.v2get_settings_kill_title, R.string.v2get_settings_kill_body,
                     status = stringResource(R.string.v2get_settings_kill_open),
                     onClick = onKillSwitch,
+                )
+                HorizontalDivider(color = V2G.Border)
+                ToggleRow(
+                    R.drawable.ic_v2g_bolt, R.string.v2get_settings_auto_title, R.string.v2get_settings_auto_body,
+                    checked = autoBest, onChecked = onAutoBest,
                 )
                 HorizontalDivider(color = V2G.Border)
                 ToggleRow(

@@ -16,6 +16,7 @@ import com.v2ray.ang.enums.CoreResolvedType
 import com.v2ray.ang.enums.EConfigType
 import com.v2ray.ang.extension.isNotNullEmpty
 import com.v2ray.ang.handler.MmkvManager
+import com.v2ray.ang.v2get.V2GetTraffic
 import com.v2ray.ang.handler.SettingsManager
 import com.v2ray.ang.util.HttpUtil
 import com.v2ray.ang.util.JsonUtil
@@ -152,7 +153,7 @@ object CoreConfigManager {
         }
 
         // Inject or remove traffic statistics configuration based on user preference
-        if (MmkvManager.decodeSettingsBool(AppConfig.PREF_SPEED_ENABLED) == true) {
+        if (statsWanted()) {
             if (!json.has("stats")) {
                 json.add("stats", JsonObject())
             }
@@ -1133,10 +1134,18 @@ object CoreConfigManager {
     }
 
     /**
+     * V2GET: the core counts outbound traffic when the person asked for the speed display, and always while an
+     * account is signed in: the usage reported to the panel is added up from these counters, so without them
+     * a connection would use data the account never sees.
+     */
+    private fun statsWanted(): Boolean =
+        MmkvManager.decodeSettingsBool(AppConfig.PREF_SPEED_ENABLED) == true || V2GetTraffic.statsNeeded()
+
+    /**
      * Remove speed-test runtime sections when the feature is disabled.
      */
     private fun applySpeedDisabled(v2rayConfig: V2rayConfig) {
-        if (MmkvManager.decodeSettingsBool(AppConfig.PREF_SPEED_ENABLED) != true) {
+        if (!statsWanted()) {
             v2rayConfig.stats = null
             v2rayConfig.policy?.system = null
         }

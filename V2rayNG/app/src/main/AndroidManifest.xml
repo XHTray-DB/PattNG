@@ -31,6 +31,12 @@
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- V2GET: from Android 11 on an app sees only a few of the installed apps unless it holds this; the split
+         tunneling list (PerAppProxyActivity, via AppManagerUtil.loadNetworkAppList) must list every app, such as
+         the app stores and file sharing apps, or the person cannot choose them. The build is not for Google Play,
+         whose policy restricts this permission. Remove when the list is built from a narrower, declared query. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"
         tools:ignore="ForegroundServicesPolicy" />
