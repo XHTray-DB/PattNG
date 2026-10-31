@@ -2,7 +2,7 @@
 
 1. داشبورد Cloudflare → Workers & Pages → Create → Create Worker. محتوای `worker.js` را در ادیتور بچسبان و Deploy کن.
 2. KV: Storage & Databases → KV → Create namespace (مثلاً `v2get`). بعد داخل ورکر: Settings → Bindings → Add → KV namespace، با **Variable name = `V2GET_KV`**.
-3. Settings → Variables and Secrets → Add: نوع **Secret**، اسم `ADMIN_SECRET`، مقدار یه رمز طولانی. (اختیاری: متغیر متنی `AETHER_COMMAND` برای عوض‌کردن دستور Aether.)
+3. Settings → Variables and Secrets → Add: نوع **Secret**، اسم `ADMIN_SECRET`، مقدار یه رمز طولانی. (کانفیگ Aether از ورکر داده نمی‌شود؛ برنامه آن را از `conf.json` مخزن Pattconf می‌خواند.)
 4. آدرس ورکر (مثل `https://v2get-api.xxx.workers.dev`) را در گیت‌هاب بگذار: Settings → Secrets and variables → Actions → Variables → `V2GET_API_URL`.
 
 ## ساخت کاربر (Termux)

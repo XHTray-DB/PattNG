@@ -16,21 +16,29 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import com.v2ray.ang.AngApplication
 import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.R
@@ -82,15 +90,27 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
         val state by viewModel.uiState.collectAsStateWithLifecycle()
         val account by accountViewModel.state.collectAsStateWithLifecycle()
         val context = LocalContext.current
+        // The exact reason of a failure stays on screen in a dialog until it is closed.
+        var errorText by remember { mutableStateOf<String?>(null) }
         LaunchedEffect(state.notice) {
-            val text = when (val notice = state.notice) {
+            when (val notice = state.notice) {
                 null -> return@LaunchedEffect
-                V2GetNotice.QuotaExhausted -> context.getString(R.string.v2get_quota_exhausted)
-                V2GetNotice.Expired -> context.getString(R.string.v2get_subscription_expired)
-                is V2GetNotice.StartFailure -> context.getString(R.string.v2get_start_failure, notice.reason)
+                V2GetNotice.QuotaExhausted -> context.toast(context.getString(R.string.v2get_quota_exhausted))
+                V2GetNotice.Expired -> context.toast(context.getString(R.string.v2get_subscription_expired))
+                is V2GetNotice.StartFailure -> errorText = notice.reason.ifBlank { context.getString(R.string.v2get_error_unknown) }
+                is V2GetNotice.Failure -> errorText = notice.reason
             }
-            context.toast(text)
             viewModel.noticeShown()
+        }
+        errorText?.let { text ->
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                AlertDialog(
+                    onDismissRequest = { errorText = null },
+                    title = { Text(stringResource(R.string.v2get_error_title)) },
+                    text = { SelectionContainer { Text(text) } },
+                    confirmButton = { TextButton(onClick = { errorText = null }) { Text(stringResource(R.string.v2get_error_ok)) } },
+                )
+            }
         }
         LaunchedEffect(account.loggedOut) {
             if (account.loggedOut) {
@@ -154,13 +174,16 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
     }
 
     private fun requestStart() {
-        if (!viewModel.beginStart()) return
-        if (!SettingsManager.isVpnMode()) {
-            startCore()
-            return
+        lifecycleScope.launch {
+            // The account is checked against the panel and the configuration read again before anything starts.
+            if (!viewModel.prepareStart()) return@launch
+            if (!SettingsManager.isVpnMode()) {
+                startCore()
+                return@launch
+            }
+            val intent = VpnService.prepare(this@V2GetMainActivity)
+            if (intent == null) startCore() else requestVpnPermission.launch(intent)
         }
-        val intent = VpnService.prepare(this)
-        if (intent == null) startCore() else requestVpnPermission.launch(intent)
     }
 
     private fun startCore() {

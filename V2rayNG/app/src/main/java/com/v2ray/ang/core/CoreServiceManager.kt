@@ -31,6 +31,7 @@ import com.v2ray.ang.service.DialerNativeService
 import com.v2ray.ang.service.DialerWebviewService
 import com.v2ray.ang.service.NetworkMonitor
 import com.v2ray.ang.util.LogUtil
+import com.v2ray.ang.v2get.V2GetTraffic
 import com.v2ray.ang.util.Utils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
@@ -150,7 +151,12 @@ object CoreServiceManager {
      */
     private class StartFailure(message: String) : RuntimeException(message)
 
-    private fun userFacingReason(e: Exception): String = if (e is StartFailure) e.message.orEmpty() else ""
+    // The V2GET screen shows the exact reason in a dialog: a localized message as it is, any other failure by its class and message.
+    private fun userFacingReason(e: Exception): String {
+        if (e is StartFailure) return e.message.orEmpty()
+        val cause = e.cause?.let { " (${it.javaClass.simpleName}: ${it.message.orEmpty()})" }.orEmpty()
+        return "${e.javaClass.simpleName}: ${e.message.orEmpty()}$cause"
+    }
 
     @Throws(Exception::class)
     private fun doStartCoreLoop(service: Service, vpnInterface: ParcelFileDescriptor?) {
@@ -162,6 +168,7 @@ object CoreServiceManager {
 
         currentVpnInterface = vpnInterface
         launchCore(service, vpnInterface)
+        V2GetTraffic.begin(MmkvManager.getSelectServer())
         startNetworkMonitor(service)
     }
 
@@ -433,6 +440,13 @@ object CoreServiceManager {
         // root service tear down in onDestroy, out of the foreground already, where a post outlives them.
         NotificationManager.cancelNotification()
         cancelAetherWarmUp()
+        // V2GET: the last counters go into the total before the core stops, and the total goes to the panel.
+        try {
+            if (isRunning()) queryAllOutboundTrafficStats()
+        } catch (e: Exception) {
+            LogUtil.e(AppConfig.TAG, "StartCore-Manager: last traffic query failed", e)
+        }
+        V2GetTraffic.finish()
         AetherCoreManager.stop()
 
         if (isRunning()) {
@@ -633,6 +647,7 @@ object CoreServiceManager {
             )
         }
 //        LogUtil.d(AppConfig.TAG, "Queried outbound traffic stats: $result")
+        V2GetTraffic.add(result)
         return result
     }
 

@@ -57,6 +57,7 @@ import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.R
 import com.v2ray.ang.ui.base.BaseComponentActivity
 import com.v2ray.ang.v2get.V2GetAuthManager
+import com.v2ray.ang.v2get.V2GetConfigSource
 import com.v2ray.ang.v2get.V2GetSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -68,7 +69,7 @@ import kotlinx.coroutines.withContext
 
 sealed class V2GetLoginIssue {
     data object Empty : V2GetLoginIssue()
-    data object BadCore : V2GetLoginIssue()
+    data class BadCore(val detail: String) : V2GetLoginIssue()
     data class Failed(val error: V2GetAuthManager.LoginError, val httpCode: Int) : V2GetLoginIssue()
 }
 
@@ -97,17 +98,15 @@ class V2GetLoginViewModel(private val apiUrl: String = BuildConfig.V2GET_API_URL
                     V2GetLoginState(issue = V2GetLoginIssue.Failed(result.error, result.httpCode))
 
                 is V2GetAuthManager.LoginResult.Success -> withContext(Dispatchers.IO) {
-                    val core = result.config ?: V2GetAuthManager.CoreConfig(
-                        core = "aether",
-                        socksPort = 1819,
-                        aetherCommand = V2GetAuthManager.DEFAULT_AETHER_COMMAND,
-                    )
-                    // The profile first: an account whose core cannot be set up is not signed in.
-                    if (V2GetAuthManager.applyAetherCoreProfile(core)) {
+                    // The configuration first: an account that cannot get its core is not signed in. The usage
+                    // figures of this sign-in are the ones the panel just sent with the session.
+                    val detail = V2GetConfigSource.refreshProfile()
+                    if (detail == null) {
                         V2GetSession.save(result.session)
+                        V2GetAuthManager.flushPending()
                         V2GetLoginState(signedIn = true)
                     } else {
-                        V2GetLoginState(issue = V2GetLoginIssue.BadCore)
+                        V2GetLoginState(issue = V2GetLoginIssue.BadCore(detail))
                     }
                 }
             }
@@ -372,7 +371,7 @@ class V2GetLoginActivity : BaseComponentActivity() {
     @Composable
     private fun issueText(issue: V2GetLoginIssue): String = when (issue) {
         V2GetLoginIssue.Empty -> stringResource(R.string.v2get_login_empty)
-        V2GetLoginIssue.BadCore -> stringResource(R.string.v2get_login_bad_core)
+        is V2GetLoginIssue.BadCore -> stringResource(R.string.v2get_login_bad_core) + "\n" + issue.detail
         is V2GetLoginIssue.Failed -> when (issue.error) {
             V2GetAuthManager.LoginError.BAD_CREDENTIALS -> stringResource(R.string.v2get_login_bad_credentials)
             V2GetAuthManager.LoginError.SERVER -> stringResource(R.string.v2get_login_server_error, issue.httpCode)

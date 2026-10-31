@@ -1,7 +1,7 @@
 /**
  * V2GET API (Cloudflare Worker)
  *
- * Bindings: V2GET_KV (KV namespace), ADMIN_SECRET (secret), AETHER_COMMAND (optional text variable).
+ * Bindings: V2GET_KV (KV namespace), ADMIN_SECRET (secret).
  * Passwords are stored as PBKDF2-SHA256 hashes; sessions are random tokens stored hashed.
  * Time is the Worker's own: quota and expiry are decided here, never by the phone's clock.
  */
@@ -12,7 +12,6 @@ const SESSION_TTL = 7 * 24 * 3600;
 const MAX_FAILS = 10;
 const FAIL_WINDOW = 900;
 const MAX_DELTA = 50 * 1024 ** 3;
-const DEFAULT_AETHER_COMMAND = "--masque -4 --scan turbo --noize firewall";
 const DUMMY_SALT = new Uint8Array(16);
 
 const json = (data, status = 200) =>
@@ -131,14 +130,7 @@ async function login(request, env, nowMs) {
     token,
     server_time: Math.floor(nowMs / 1000),
     user: userView(user, nowMs),
-    // A blocked account gets no core settings; the app also refuses to connect for it.
-    config: state.active
-      ? {
-          core: "aether",
-          socksPort: 1819,
-          aetherCommand: env.AETHER_COMMAND || DEFAULT_AETHER_COMMAND,
-        }
-      : null,
+    // The worker hands out no core settings: the configuration is public and the app reads it from the repository.
   });
 }
 

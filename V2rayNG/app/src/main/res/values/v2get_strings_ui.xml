@@ -97,4 +97,7 @@
     <string name="v2get_login_cta" translatable="false">ورود و اتصال به شبکه V2GET</string>
     <string name="v2get_login_support" translatable="false">دریافت اکانت یا پشتیبانی از طریق تلگرام</string>
     <string name="v2get_login_footer" translatable="false">V2GET • طراحی‌شده برای پایداری حداکثری و دور زدن فیلترینگ</string>
+    <string name="v2get_error_title" translatable="false">علت خطا</string>
+    <string name="v2get_error_ok" translatable="false">باشه</string>
+    <string name="v2get_error_unknown" translatable="false">علت مشخصی گزارش نشد؛ لاگ برنامه را ببینید.</string>
 </resources>

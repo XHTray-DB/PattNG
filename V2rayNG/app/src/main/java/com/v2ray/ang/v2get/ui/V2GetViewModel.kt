@@ -4,6 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.v2ray.ang.ui.main.MainDataSource
+import com.v2ray.ang.v2get.V2GetAuthManager
+import com.v2ray.ang.v2get.V2GetConfigSource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.v2ray.ang.ui.main.MainServiceEvent
 import com.v2ray.ang.v2get.V2GetQuota
 import com.v2ray.ang.v2get.V2GetSession
@@ -20,6 +24,8 @@ sealed class V2GetNotice {
     data object QuotaExhausted : V2GetNotice()
     data object Expired : V2GetNotice()
     data class StartFailure(val reason: String) : V2GetNotice()
+    /** A failure before the core starts (account check, configuration download); shown in a dialog like a start failure. */
+    data class Failure(val reason: String) : V2GetNotice()
 }
 
 data class V2GetUiState(
@@ -67,6 +73,28 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
         }
         _uiState.update { it.copy(connection = V2GetConnection.Connecting) }
         return true
+    }
+
+    /**
+     * What a connection asks before it starts: the account figures are checked against the panel, the usage
+     * reports still waiting go out, and the configuration is read again from the repository. False, with the
+     * reason in a notice, when the connection must not start. A panel that cannot be reached does not block:
+     * the figures stored at the last sync decide then, as [beginStart] checks.
+     */
+    suspend fun prepareStart(): Boolean {
+        _uiState.update { it.copy(connection = V2GetConnection.Connecting) }
+        val failure: String? = withContext(Dispatchers.IO) {
+            V2GetAuthManager.flushPending()
+            when (V2GetAuthManager.syncAccount()) {
+                V2GetAuthManager.SyncResult.Unauthorized -> "نشست حساب منقضی شده است؛ دوباره وارد شوید."
+                else -> V2GetConfigSource.refreshProfile()
+            }
+        }
+        if (failure != null) {
+            _uiState.update { it.copy(connection = V2GetConnection.Disconnected, notice = V2GetNotice.Failure(failure)) }
+            return false
+        }
+        return beginStart()
     }
 
     /** A start that did not go ahead after [beginStart], such as a refused VPN permission. */

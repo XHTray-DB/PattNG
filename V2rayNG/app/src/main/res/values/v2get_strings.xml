@@ -14,7 +14,7 @@
     <string name="v2get_login_server_error" translatable="false">خطای سرور: %1$d</string>
     <string name="v2get_login_network_error" translatable="false">اتصال به سرور برقرار نشد.</string>
     <string name="v2get_login_bad_response" translatable="false">پاسخ سرور قابل خواندن نیست.</string>
-    <string name="v2get_login_bad_core" translatable="false">تنظیمات هسته‌ی دریافتی از سرور معتبر نیست.</string>
+    <string name="v2get_login_bad_core" translatable="false">کانفیگ هسته از گیت‌هاب دریافت نشد.</string>
 
     <string name="v2get_default_user" translatable="false">کاربر ویژه</string>
     <string name="v2get_quota_remaining" translatable="false">سهمیه باقیمانده</string>

@@ -10,19 +10,17 @@ import org.junit.jupiter.api.Test
 class V2GetAuthManagerTest {
 
     private val body = """
-        {"token":"abc","user":{"username":"sara","quotaBytes":64424509440,"usedBytes":1073741824,"expiresAt":"2026-12-31"},
-         "config":{"core":"aether","socksPort":1819,"aetherCommand":"--masque -4 --scan turbo --noize firewall --bind 127.0.0.1:1819"}}
+        {"token":"abc","user":{"username":"sara","quotaBytes":64424509440,"usedBytes":1073741824,"expiresAt":"2026-12-31"}}
     """.trimIndent()
 
     @Test
-    fun aSuccessfulLoginCarriesTheAccountAndTheCore() {
+    fun aSuccessfulLoginCarriesTheAccount() {
         val result = V2GetAuthManager.parseLogin(200, body, "typed") as LoginResult.Success
         assertEquals("abc", result.session.token)
         assertEquals("sara", result.session.username)
         assertEquals(60L * 1024 * 1024 * 1024, result.session.quotaBytes)
         assertEquals(1024L * 1024 * 1024, result.session.usedBytes)
         assertEquals("2026-12-31", result.session.expiresAt)
-        assertEquals(1819, result.config?.socksPort)
     }
 
     @Test
@@ -32,7 +30,6 @@ class V2GetAuthManagerTest {
         assertEquals(100L, result.session.quotaBytes)
         assertEquals(7L, result.session.usedBytes)
         assertEquals("typed", result.session.username)
-        assertNull(result.config)
     }
 
     @Test
@@ -46,24 +43,10 @@ class V2GetAuthManagerTest {
     }
 
     @Test
-    fun theCommandLosesItsOwnListener() {
-        assertEquals(
-            "--masque -4 --scan turbo --noize firewall",
-            V2GetAuthManager.sanitizeCommand("--masque -4 --scan turbo --noize firewall --bind 127.0.0.1:1819"),
-        )
-        assertEquals("--masque --scan turbo", V2GetAuthManager.sanitizeCommand("--bind 127.0.0.1:1 --masque --scan turbo"))
-        assertEquals("--masque", V2GetAuthManager.sanitizeCommand("--masque --bind=127.0.0.1:1819"))
-        assertEquals(V2GetAuthManager.DEFAULT_AETHER_COMMAND, V2GetAuthManager.sanitizeCommand("--bind 127.0.0.1:1819"))
-        assertEquals(V2GetAuthManager.DEFAULT_AETHER_COMMAND, V2GetAuthManager.sanitizeCommand("   "))
-    }
-
-    @Test
-    fun theProfileRunsTheCommandOnTheAetherCore() {
-        val profile = V2GetAuthManager.buildAetherProfile(
-            V2GetAuthManager.CoreConfig("aether", 1819, "--masque --scan turbo --bind 127.0.0.1:1819")
-        )
-        assertEquals("--masque --scan turbo", profile.aetherCommand)
-        assertEquals("masque", profile.aetherProtocol)
+    fun theConfigurationLinkIsFoundInTheFile() {
+        val file = "ss://x@1.2.3.4:1#a\naether://?protocol=wg-over-masque&scan=balanced#n%20m\nvless://y"
+        assertEquals("aether://?protocol=wg-over-masque&scan=balanced#n%20m", V2GetConfigSource.extractAetherUri(file))
+        assertNull(V2GetConfigSource.extractAetherUri("ss://x@1.2.3.4:1#a"))
     }
 
     @Test

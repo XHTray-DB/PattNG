@@ -3,10 +3,7 @@ package com.v2ray.ang.v2get
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.v2ray.ang.AppConfig
-import com.v2ray.ang.core.AetherCore
-import com.v2ray.ang.dto.entities.ProfileItem
-import com.v2ray.ang.enums.AetherProtocol
-import com.v2ray.ang.enums.EConfigType
+import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.util.LogUtil
 import kotlinx.coroutines.Dispatchers
@@ -20,14 +17,10 @@ object V2GetAuthManager {
     /** The one profile V2GET keeps; a new sign-in replaces it in place. */
     const val PROFILE_GUID = "v2get-aether-core-active"
 
-    const val DEFAULT_AETHER_COMMAND = "--masque -4 --scan turbo --noize firewall"
-
-    data class CoreConfig(val core: String, val socksPort: Int, val aetherCommand: String)
-
     enum class LoginError { BAD_CREDENTIALS, SERVER, NETWORK, BAD_RESPONSE, NO_SERVER }
 
     sealed class LoginResult {
-        data class Success(val session: V2GetSession, val config: CoreConfig?) : LoginResult()
+        data class Success(val session: V2GetSession) : LoginResult()
         data class Failure(val error: LoginError, val httpCode: Int = 0) : LoginResult()
     }
 
@@ -99,65 +92,140 @@ object V2GetAuthManager {
             usedBytes = user?.long("usedBytes") ?: user?.long("used") ?: 0L,
             expiresAt = user?.text("expiresAt").orEmpty(),
         )
-        val config = root.obj("config")?.let {
-            CoreConfig(
-                core = it.text("core") ?: "aether",
-                socksPort = it.long("socksPort")?.toInt() ?: 1819,
-                aetherCommand = it.text("aetherCommand") ?: DEFAULT_AETHER_COMMAND,
-            )
-        }
-        return LoginResult.Success(session, config)
+        return LoginResult.Success(session)
     }
 
-    /**
-     * The command without its own listener: the app picks the port its Aether outbounds dial, and a
-     * port named by the panel would be one nothing dials. An empty rest becomes [DEFAULT_AETHER_COMMAND].
-     */
-    internal fun sanitizeCommand(raw: String): String {
-        val words = raw.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
-        val kept = mutableListOf<String>()
-        var index = 0
-        while (index < words.size) {
-            val word = words[index]
-            when {
-                word == "--bind" -> index += 1 // its address is the next word
-                word.startsWith("--bind=") -> Unit
-                else -> kept.add(word)
-            }
-            index += 1
-        }
-        return kept.joinToString(" ").ifEmpty { DEFAULT_AETHER_COMMAND }
+    /** Result of asking the panel for the account as it stands now. */
+    sealed class SyncResult {
+        data class Ok(val session: V2GetSession) : SyncResult()
+        data object Unauthorized : SyncResult()
+        data class Failed(val reason: String) : SyncResult()
     }
 
-    internal fun buildAetherProfile(config: CoreConfig): ProfileItem {
-        val command = sanitizeCommand(config.aetherCommand)
-        return ProfileItem.create(EConfigType.AETHER).apply {
-            remarks = "V2GET Cloud Aether"
-            aetherCommand = command
-            if ("--masque" in command.split(' ')) aetherProtocol = AetherProtocol.MASQUE.type
-        }
+    private fun apiBase(): String = BuildConfig.V2GET_API_URL.trim().trimEnd('/')
+
+    /** Replaces the quota, usage and expiry of the stored session with the panel's figures. */
+    private fun storeFigures(old: V2GetSession, user: JsonObject?): V2GetSession {
+        if (user == null) return old
+        val fresh = old.copy(
+            quotaBytes = user.long("quotaBytes") ?: old.quotaBytes,
+            usedBytes = user.long("usedBytes") ?: old.usedBytes,
+            expiresAt = user.text("expiresAt") ?: old.expiresAt,
+        )
+        V2GetSession.save(fresh)
+        return fresh
     }
 
-    /** Stores the profile for [config] and selects it. False, with the stored profile as it was, when the command is not one the core runs or the storage refused it. */
-    fun applyAetherCoreProfile(config: CoreConfig): Boolean {
-        val profile = buildAetherProfile(config)
-        if (AetherCore.ofCommand(profile.aetherCommand.orEmpty()) == null) {
-            LogUtil.e(AppConfig.TAG, "V2GetAuthManager: the core command from the panel is not readable")
-            return false
-        }
+    /** GET /api/v1/user/account: the usage figures, checked against the panel. Blocking. */
+    fun syncAccount(): SyncResult {
+        val session = V2GetSession.load() ?: return SyncResult.Unauthorized
+        if (!apiBase().startsWith("https://", ignoreCase = true)) return SyncResult.Failed("آدرس سرور HTTPS نیست")
+        var conn: HttpURLConnection? = null
         return try {
-            MmkvManager.encodeServerConfig(PROFILE_GUID, profile)
-            MmkvManager.setSelectServer(PROFILE_GUID)
-            true
+            conn = (URL("${apiBase()}/api/v1/user/account").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("Authorization", "Bearer ${session.token}")
+                setRequestProperty("Accept", "application/json")
+                connectTimeout = 12_000
+                readTimeout = 12_000
+            }
+            when (val code = conn.responseCode) {
+                HttpURLConnection.HTTP_OK -> {
+                    val root = JsonParser.parseString(conn.inputStream.bufferedReader().use { it.readText() }).asJsonObject
+                    SyncResult.Ok(storeFigures(session, root.obj("user")))
+                }
+                HttpURLConnection.HTTP_UNAUTHORIZED, HttpURLConnection.HTTP_FORBIDDEN -> SyncResult.Unauthorized
+                else -> SyncResult.Failed("HTTP $code")
+            }
         } catch (e: Exception) {
-            LogUtil.e(AppConfig.TAG, "V2GetAuthManager: storing profile $PROFILE_GUID failed", e)
+            LogUtil.e(AppConfig.TAG, "V2GetAuthManager: account sync failed", e)
+            SyncResult.Failed("${e.javaClass.simpleName}: ${e.message.orEmpty()}")
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    // A usage report is written down before it is sent and struck out once the panel took it, so a report
+    // the process did not live to send, or the network refused, goes out with the next connection. The panel
+    // counts a (session, seq) once, so the same report may be sent again.
+    private const val KEY_PENDING = "V2GET_PENDING_REPORTS"
+
+    private fun readPending(): org.json.JSONArray =
+        runCatching { org.json.JSONArray(MmkvManager.decodeSettingsString(KEY_PENDING).orEmpty().ifEmpty { "[]" }) }
+            .getOrDefault(org.json.JSONArray())
+
+    @Synchronized
+    private fun writePending(array: org.json.JSONArray) {
+        MmkvManager.encodeSettings(KEY_PENDING, array.toString())
+    }
+
+    /** Writes a finished session's traffic down and sends everything waiting. Blocking. */
+    @Synchronized
+    fun reportUsage(sessionId: String, up: Long, down: Long) {
+        if (up > 0 || down > 0) {
+            val list = readPending()
+            list.put(org.json.JSONObject().put("sid", sessionId).put("seq", 0).put("up", up).put("down", down))
+            writePending(list)
+        }
+        flushPending()
+    }
+
+    /** Sends the waiting usage reports; the ones refused stay. Returns whether none is left. Blocking. */
+    @Synchronized
+    fun flushPending(): Boolean {
+        val list = readPending()
+        if (list.length() == 0) return true
+        val session = V2GetSession.load() ?: return false
+        val left = org.json.JSONArray()
+        for (i in 0 until list.length()) {
+            val item = list.getJSONObject(i)
+            if (!sendReport(session, item)) left.put(item)
+        }
+        writePending(left)
+        return left.length() == 0
+    }
+
+    private fun sendReport(session: V2GetSession, item: org.json.JSONObject): Boolean {
+        if (!apiBase().startsWith("https://", ignoreCase = true)) return false
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = (URL("${apiBase()}/api/v1/usage").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                setRequestProperty("Authorization", "Bearer ${session.token}")
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Accept", "application/json")
+                doOutput = true
+                connectTimeout = 12_000
+                readTimeout = 12_000
+            }
+            val payload = JsonObject().apply {
+                addProperty("session_id", item.getString("sid"))
+                addProperty("seq", item.getInt("seq"))
+                addProperty("delta_uplink", item.getLong("up"))
+                addProperty("delta_downlink", item.getLong("down"))
+            }
+            conn.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+            val code = conn.responseCode
+            if (code == HttpURLConnection.HTTP_OK) {
+                val root = JsonParser.parseString(conn.inputStream.bufferedReader().use { it.readText() }).asJsonObject
+                storeFigures(session, root)
+                true
+            } else {
+                // A report the panel calls invalid never will be valid; keeping it would block the rest.
+                code == HttpURLConnection.HTTP_BAD_REQUEST
+            }
+        } catch (e: Exception) {
+            LogUtil.e(AppConfig.TAG, "V2GetAuthManager: usage report failed", e)
             false
+        } finally {
+            conn?.disconnect()
         }
     }
 
     /** Forgets the account and its profile; the caller stops a running service first. */
     fun logout() {
         V2GetSession.clear()
+        MmkvManager.encodeSettings(KEY_PENDING, "")
         MmkvManager.tryRemoveServer(PROFILE_GUID)
     }
 
