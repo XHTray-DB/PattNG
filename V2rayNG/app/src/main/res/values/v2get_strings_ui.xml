@@ -30,7 +30,8 @@
     <string name="v2get_tunnel_vpn" translatable="false">VPN (TUN)</string>
     <string name="v2get_tunnel_proxy" translatable="false">پروکسی</string>
 
-    <string name="v2get_servers_filter_all" translatable="false">همه سرورها (۱)</string>
+    <string name="v2get_servers_filter_all" translatable="false">همه سرورها (%1$s)</string>
+    <string name="v2get_servers_empty" translatable="false">هنوز سروری دریافت نشده است. اینترنت را بررسی کنید و دوباره وارد این صفحه شوید.</string>
     <string name="v2get_servers_filter_aether" translatable="false">Aether MASQUE</string>
     <string name="v2get_servers_best" translatable="false">گره برتر مسیریابی</string>
     <string name="v2get_servers_recommended" translatable="false">پیشنهادی</string>

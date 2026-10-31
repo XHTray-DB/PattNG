@@ -157,6 +157,12 @@ jobs:
       run: |
         bash fetch-psiphon-servers.sh
 
+    # The routing names geosite: and geoip: lists, and the core refuses a configuration whose list file is
+    # missing; *.dat is git-ignored, so the build fetches them; see fetch-geo.sh.
+    - name: Fetch the geo files
+      run: |
+        bash fetch-geo.sh
+
     - name: Fetch AndroidLibXrayLite tag
       run: |
         pushd AndroidLibXrayLite

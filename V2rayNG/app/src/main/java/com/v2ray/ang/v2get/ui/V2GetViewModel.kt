@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.v2ray.ang.ui.main.MainDataSource
 import com.v2ray.ang.v2get.V2GetAuthManager
 import com.v2ray.ang.v2get.V2GetConfigSource
+import com.v2ray.ang.v2get.V2GetGeoFiles
+import com.v2ray.ang.v2get.V2GetServer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.v2ray.ang.ui.main.MainServiceEvent
@@ -32,6 +34,8 @@ data class V2GetUiState(
     val session: V2GetSession? = null,
     val connection: V2GetConnection = V2GetConnection.Disconnected,
     val notice: V2GetNotice? = null,
+    val servers: List<V2GetServer> = emptyList(),
+    val selectedGuid: String? = null,
 )
 
 /**
@@ -40,7 +44,13 @@ data class V2GetUiState(
  */
 class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(V2GetUiState(session = V2GetSession.load()))
+    private val _uiState = MutableStateFlow(
+        V2GetUiState(
+            session = V2GetSession.load(),
+            servers = V2GetConfigSource.loadServers(),
+            selectedGuid = V2GetConfigSource.selectedGuid(),
+        )
+    )
     val uiState: StateFlow<V2GetUiState> = _uiState.asStateFlow()
 
     init {
@@ -51,8 +61,30 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
     }
 
     fun refresh() {
-        _uiState.update { it.copy(session = V2GetSession.load()) }
+        _uiState.update {
+            it.copy(
+                session = V2GetSession.load(),
+                servers = V2GetConfigSource.loadServers(),
+                selectedGuid = V2GetConfigSource.selectedGuid(),
+            )
+        }
         dataSource.queryServiceState()
+    }
+
+    /** The server the next connection uses. */
+    fun selectServer(guid: String) {
+        if (V2GetConfigSource.selectServer(guid)) _uiState.update { it.copy(selectedGuid = guid) }
+    }
+
+    /**
+     * Reads the server list again when the screen opens, so a server added to the file shows without a
+     * connection. Only while disconnected: the profiles of a running core are not touched. A failure keeps the
+     * list as it was.
+     */
+    suspend fun reloadServers() {
+        if (_uiState.value.connection != V2GetConnection.Disconnected) return
+        withContext(Dispatchers.IO) { V2GetConfigSource.refreshProfile() }
+        refresh()
     }
 
     /**
@@ -87,13 +119,18 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
             V2GetAuthManager.flushPending()
             when (V2GetAuthManager.syncAccount()) {
                 V2GetAuthManager.SyncResult.Unauthorized -> "نشست حساب منقضی شده است؛ دوباره وارد شوید."
-                else -> V2GetConfigSource.refreshProfile()
+                else -> {
+                    // The geo files first: a routing rule naming a missing list makes the core refuse the whole configuration.
+                    V2GetGeoFiles.ensure()
+                    V2GetConfigSource.refreshProfile()
+                }
             }
         }
         if (failure != null) {
             _uiState.update { it.copy(connection = V2GetConnection.Disconnected, notice = V2GetNotice.Failure(failure)) }
             return false
         }
+        _uiState.update { it.copy(servers = V2GetConfigSource.loadServers(), selectedGuid = V2GetConfigSource.selectedGuid()) }
         return beginStart()
     }
 

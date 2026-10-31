@@ -55,8 +55,10 @@ import androidx.compose.ui.unit.sp
 import com.v2ray.ang.R
 import com.v2ray.ang.v2get.V2GetQuota
 import com.v2ray.ang.v2get.V2GetSession
+import java.text.NumberFormat
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import java.util.Locale
 import kotlinx.coroutines.delay
 
 private fun gb(value: Double) = "%.1f".format(value)
@@ -69,6 +71,9 @@ private fun gb(value: Double) = "%.1f".format(value)
 fun ConnectTab(state: V2GetUiState, vpnMode: Boolean, onToggle: () -> Unit) {
     val connection = state.connection
     val connected = connection == V2GetConnection.Connected
+    val server = state.servers.firstOrNull { it.guid == state.selectedGuid } ?: state.servers.firstOrNull()
+    val serverName = server?.name ?: stringResource(R.string.v2get_server_name)
+    val protocolText = server?.protocol?.takeIf { it.isNotBlank() } ?: stringResource(R.string.v2get_protocol_value)
 
     Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -80,7 +85,7 @@ fun ConnectTab(state: V2GetUiState, vpnMode: Boolean, onToggle: () -> Unit) {
         PowerButton(connection, onToggle)
         Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Pill(stringResource(R.string.v2get_protocol_value), Color.White, V2G.Ink, mono = true)
+            Pill(protocolText, Color.White, V2G.Ink, mono = true)
             Pill(
                 stringResource(
                     when (connection) {
@@ -106,7 +111,7 @@ fun ConnectTab(state: V2GetUiState, vpnMode: Boolean, onToggle: () -> Unit) {
                 IconBox(R.drawable.ic_v2g_globe, background = V2G.LilacSoft, size = 48.dp)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.v2get_server_name), fontSize = 16.sp, fontWeight = FontWeight.Black, color = V2G.Ink)
+                    Text(serverName, fontSize = 16.sp, fontWeight = FontWeight.Black, color = V2G.Ink)
                     Text(stringResource(R.string.v2get_server_detail), fontSize = 12.sp, color = V2G.Muted)
                 }
                 V2Icon(R.drawable.ic_v2g_swap, V2G.Hot, 22.dp)
@@ -304,14 +309,15 @@ private fun SpeedCard(label: Int, icon: Int, modifier: Modifier) {
 // ---------------------------------------------------------------------------------------------
 
 @Composable
-fun ServersTab(state: V2GetUiState, onToggle: () -> Unit) {
+fun ServersTab(state: V2GetUiState, onConnect: (String) -> Unit, onDisconnect: () -> Unit) {
     val connected = state.connection == V2GetConnection.Connected
     val busy = state.connection != V2GetConnection.Disconnected
+    val count = NumberFormat.getInstance(Locale("fa")).format(state.servers.size)
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                stringResource(R.string.v2get_servers_filter_all),
+                stringResource(R.string.v2get_servers_filter_all, count),
                 color = Color.White,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
@@ -331,48 +337,58 @@ fun ServersTab(state: V2GetUiState, onToggle: () -> Unit) {
             Spacer(Modifier.width(6.dp))
             Text(stringResource(R.string.v2get_servers_best), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = V2G.Ink)
         }
-        Spacer(Modifier.height(10.dp))
-        GlassCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(18.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconBox(R.drawable.ic_v2g_globe, background = V2G.LilacSoft, size = 52.dp)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(stringResource(R.string.v2get_server_name), fontSize = 17.sp, fontWeight = FontWeight.Black, color = V2G.Ink)
-                        Text(stringResource(R.string.v2get_servers_unlimited), fontSize = 12.sp, color = V2G.Muted)
+        if (state.servers.isEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            GlassCard(Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.v2get_servers_empty), fontSize = 13.sp, color = V2G.Muted, modifier = Modifier.padding(18.dp))
+            }
+        }
+        state.servers.forEachIndexed { index, server ->
+            val isSelected = server.guid == state.selectedGuid
+            val isRunning = isSelected && busy
+            Spacer(Modifier.height(10.dp))
+            GlassCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(18.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconBox(R.drawable.ic_v2g_globe, background = V2G.LilacSoft, size = 52.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(server.name, fontSize = 17.sp, fontWeight = FontWeight.Black, color = V2G.Ink)
+                            Text(stringResource(R.string.v2get_servers_unlimited), fontSize = 12.sp, color = V2G.Muted)
+                        }
+                        if (index == 0) Pill(stringResource(R.string.v2get_servers_recommended), V2G.PinkSoft, V2G.Rose)
                     }
-                    Pill(stringResource(R.string.v2get_servers_recommended), V2G.PinkSoft, V2G.Rose)
-                }
-                Spacer(Modifier.height(14.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(V2G.LilacSoft).padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(stringResource(R.string.v2get_servers_protocol), fontSize = 12.sp, color = V2G.Muted)
-                    Spacer(Modifier.width(8.dp))
-                    Pill(stringResource(R.string.v2get_protocol_value), Color.White, V2G.Rose, mono = true)
-                }
-                Spacer(Modifier.height(14.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (connected) {
-                        V2Icon(R.drawable.ic_v2g_check_circle, V2G.Green, 18.dp)
-                        Spacer(Modifier.width(6.dp))
-                        Text(stringResource(R.string.v2get_servers_connected_default), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = V2G.Green)
-                    }
-                    Spacer(Modifier.weight(1f))
-                    OutlinedButton(
-                        onClick = onToggle,
-                        shape = RoundedCornerShape(50),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, V2G.Border),
+                    Spacer(Modifier.height(14.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(V2G.LilacSoft).padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            stringResource(
-                                if (busy) R.string.v2get_servers_disconnect_here else R.string.v2get_servers_connect_here
-                            ),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = V2G.Rose,
-                        )
+                        Text(stringResource(R.string.v2get_servers_protocol), fontSize = 12.sp, color = V2G.Muted)
+                        Spacer(Modifier.width(8.dp))
+                        Pill(server.protocol.ifBlank { stringResource(R.string.v2get_protocol_value) }, Color.White, V2G.Rose, mono = true)
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (connected && isSelected) {
+                            V2Icon(R.drawable.ic_v2g_check_circle, V2G.Green, 18.dp)
+                            Spacer(Modifier.width(6.dp))
+                            Text(stringResource(R.string.v2get_servers_connected_default), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = V2G.Green)
+                        }
+                        Spacer(Modifier.weight(1f))
+                        OutlinedButton(
+                            onClick = { if (isRunning) onDisconnect() else onConnect(server.guid) },
+                            shape = RoundedCornerShape(50),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, V2G.Border),
+                        ) {
+                            Text(
+                                stringResource(
+                                    if (isRunning) R.string.v2get_servers_disconnect_here else R.string.v2get_servers_connect_here
+                                ),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = V2G.Rose,
+                            )
+                        }
                     }
                 }
             }

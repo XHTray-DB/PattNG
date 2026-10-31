@@ -14,7 +14,7 @@ import java.net.URL
 /** Signs in to the V2GET panel and turns the core settings it returns into the Aether profile the app runs. */
 object V2GetAuthManager {
 
-    /** The one profile V2GET keeps; a new sign-in replaces it in place. */
+    /** The profile of the single-server build. Servers now are [V2GetConfigSource.GUID_PREFIX] plus a hash; this id is still cleaned up. */
     const val PROFILE_GUID = "v2get-aether-core-active"
 
     enum class LoginError { BAD_CREDENTIALS, SERVER, NETWORK, BAD_RESPONSE, NO_SERVER }
@@ -226,7 +226,7 @@ object V2GetAuthManager {
     fun logout() {
         V2GetSession.clear()
         MmkvManager.encodeSettings(KEY_PENDING, "")
-        MmkvManager.tryRemoveServer(PROFILE_GUID)
+        V2GetConfigSource.clear()
     }
 
     private fun JsonObject.text(name: String): String? =

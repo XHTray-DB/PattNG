@@ -49,6 +49,7 @@ import com.v2ray.ang.handler.SettingsManager
 import com.v2ray.ang.ui.base.HelperBaseComponentActivity
 import com.v2ray.ang.ui.main.MainRepository
 import com.v2ray.ang.v2get.V2GetAuthManager
+import com.v2ray.ang.v2get.V2GetConfigSource
 
 class V2GetMainActivity : HelperBaseComponentActivity() {
 
@@ -60,6 +61,9 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
 
     /** Whether the tunnel runs as a VPN or as a local proxy; read when the screen starts, shown on the connect tab. */
     private var vpnMode by mutableStateOf(true)
+
+    /** A tap on another server while a core runs: the core is stopped, and the connection starts once the daemon says it stopped. */
+    private var startAfterStop = false
 
     private val requestVpnPermission =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -81,6 +85,7 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
         vpnMode = SettingsManager.isVpnMode()
         // The service can have gone away while the screen was not shown, and the account page can have changed the figures.
         viewModel.refresh()
+        lifecycleScope.launch { viewModel.reloadServers() }
     }
 
     @Composable
@@ -112,6 +117,12 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
                 )
             }
         }
+        LaunchedEffect(state.connection) {
+            if (state.connection == V2GetConnection.Disconnected && startAfterStop) {
+                startAfterStop = false
+                requestStart()
+            }
+        }
         LaunchedEffect(account.loggedOut) {
             if (account.loggedOut) {
                 startActivity(Intent(this@V2GetMainActivity, V2GetLoginActivity::class.java))
@@ -141,7 +152,7 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
                 ) {
                     when (tab) {
                         V2GetTab.Connect -> ConnectTab(state, vpnMode, ::toggleConnection)
-                        V2GetTab.Servers -> ServersTab(state, ::toggleConnection)
+                        V2GetTab.Servers -> ServersTab(state, ::connectTo, ::toggleConnection)
                         V2GetTab.Account -> AccountTab(
                             session = state.session,
                             onCopyId = ::copyAccountId,
@@ -173,6 +184,18 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
         }
     }
 
+    /** The connection of the server [guid]: started now, or after the running core stops when it is another server. */
+    private fun connectTo(guid: String) {
+        viewModel.selectServer(guid)
+        if (viewModel.uiState.value.connection == V2GetConnection.Disconnected) {
+            requestStart()
+        } else {
+            startAfterStop = true
+            LauncherManager.stopService(this)
+            viewModel.refresh()
+        }
+    }
+
     private fun requestStart() {
         lifecycleScope.launch {
             // The account is checked against the panel and the configuration read again before anything starts.
@@ -190,6 +213,6 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.CINNAMON_BUN) {
             checkAndRequestPermission(PermissionType.ACCESS_LOCAL_NETWORK) {}
         }
-        LauncherManager.startService(this, V2GetAuthManager.PROFILE_GUID)
+        LauncherManager.startService(this, V2GetConfigSource.selectedGuid() ?: V2GetAuthManager.PROFILE_GUID)
     }
 }

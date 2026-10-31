@@ -19,7 +19,7 @@ object V2GetTraffic {
     fun begin(selectedGuid: String?) {
         up.set(0)
         down.set(0)
-        sessionId = if (selectedGuid == V2GetAuthManager.PROFILE_GUID && V2GetAuthManager.isLoggedIn()) {
+        sessionId = if (V2GetConfigSource.isV2GetGuid(selectedGuid) && V2GetAuthManager.isLoggedIn()) {
             UUID.randomUUID().toString().replace("-", "")
         } else {
             null
