@@ -18,7 +18,8 @@ android {
 
         // V2GET: the base URL of the subscription panel the login screen talks to; set the V2GET_API_URL
         // repository variable (or -Pv2getApiUrl) before building a release.
-        val v2getApiUrl = (project.findProperty("v2getApiUrl") as? String)?.trim().orEmpty()
+        val v2getApiUrl = (project.findProperty("v2getApiUrl") as? String)?.trim()?.takeIf { it.isNotEmpty() }
+            ?: "https://floral-sound-2508.upoy5.workers.dev"
         buildConfigField("String", "V2GET_API_URL", "\"$v2getApiUrl\"")
 
         val abiFilterList = (properties["ABI_FILTERS"] as? String)?.split(';')
