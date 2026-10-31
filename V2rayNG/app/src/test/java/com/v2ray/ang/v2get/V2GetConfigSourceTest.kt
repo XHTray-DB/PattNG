@@ -49,3 +49,27 @@ class V2GetConfigSourceTest {
         assertEquals("V2GET 3", V2GetConfigSource.describe(c, 2).name)
     }
 }
+
+class V2GetGeoFilesTest {
+
+    @Test
+    fun everyFileTheCoreReadsIsAmongTheOnesFetched() {
+        assertEquals(
+            listOf("geosite.dat", "geoip.dat", "geoip-only-cn-private.dat"),
+            V2GetGeoFiles.SOURCES.map { it.name },
+        )
+    }
+
+    @Test
+    fun onlyAbsentOrEmptyFilesAreMissing() {
+        val dir = java.nio.file.Files.createTempDirectory("geo").toFile()
+        try {
+            assertEquals(V2GetGeoFiles.SOURCES.map { it.name }, V2GetGeoFiles.missing(dir))
+            java.io.File(dir, "geosite.dat").writeBytes(ByteArray(10))
+            java.io.File(dir, "geoip.dat").writeBytes(ByteArray(0))
+            assertEquals(listOf("geoip.dat", "geoip-only-cn-private.dat"), V2GetGeoFiles.missing(dir))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+}

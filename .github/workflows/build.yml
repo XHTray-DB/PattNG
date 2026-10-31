@@ -185,14 +185,38 @@ jobs:
         distribution: 'temurin'
         java-version: '21'
 
-    - name: Create test keystore
+    # Android installs an update only over an app signed with the same key. A key made fresh on every run
+    # gave every build its own signature, so no build could update the one before it and Play Protect saw
+    # an unknown signer each time. The release key lives in the repository secrets: ANDROID_KEYSTORE_BASE64
+    # (the .jks, base64), ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD.
+    # A release (release_tag set) without it stops here; a plain push build falls back to a throwaway key.
+    - name: Prepare the signing keystore
       id: android_keystore
+      env:
+        KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'v2gettest' }}
+        KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'v2get' }}
+        KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD || 'v2gettest' }}
+        RELEASE_TAG: ${{ inputs.release_tag }}
       run: |
-        keytool -genkeypair -v -keystore "$RUNNER_TEMP/test.jks" -storepass v2gettest -keypass v2gettest \
-          -alias v2get -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=V2GET"
-        echo "filePath=$RUNNER_TEMP/test.jks" >> "$GITHUB_OUTPUT"
+        if [[ -n "$KEYSTORE_BASE64" ]]; then
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "filePath=$RUNNER_TEMP/release.jks" >> "$GITHUB_OUTPUT"
+        elif [[ -n "$RELEASE_TAG" ]]; then
+          echo "::error::ANDROID_KEYSTORE_BASE64 is not set: a release signed with a throwaway key cannot update an installed app"
+          exit 1
+        else
+          echo "::warning::No release keystore in the secrets: this build is signed with a throwaway key and cannot update another build"
+          keytool -genkeypair -v -keystore "$RUNNER_TEMP/test.jks" -storepass "$KS_PASS" -keypass "$KEY_PASS" \
+            -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=V2GET"
+          echo "filePath=$RUNNER_TEMP/test.jks" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Build APK
+      env:
+        KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'v2gettest' }}
+        KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'v2get' }}
+        KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD || 'v2gettest' }}
       run: |
         cd ${{ github.workspace }}/V2rayNG
         echo "sdk.dir=${ANDROID_HOME}" > local.properties
@@ -201,7 +225,7 @@ jobs:
         # build before anything is assembled or signed.
         ./gradlew :app:testPlaystoreDebugUnitTest
         ./gradlew licenseFdroidReleaseReport
-        ./gradlew assembleRelease -PpattngVersion="${{ inputs.release_tag }}" -Pv2getApiUrl="${{ vars.V2GET_API_URL }}" -Pandroid.injected.signing.store.file=${{ steps.android_keystore.outputs.filePath }} -Pandroid.injected.signing.store.password=v2gettest -Pandroid.injected.signing.key.alias=v2get -Pandroid.injected.signing.key.password=v2gettest
+        ./gradlew assembleRelease -PpattngVersion="${{ inputs.release_tag }}" -Pv2getApiUrl="${{ vars.V2GET_API_URL }}" -Pandroid.injected.signing.store.file=${{ steps.android_keystore.outputs.filePath }} -Pandroid.injected.signing.store.password="$KS_PASS" -Pandroid.injected.signing.key.alias="$KEY_ALIAS" -Pandroid.injected.signing.key.password="$KEY_PASS"
     
     - name: Check the native libraries in the APKs
       run: |

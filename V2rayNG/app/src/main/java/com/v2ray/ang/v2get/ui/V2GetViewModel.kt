@@ -119,11 +119,9 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
             V2GetAuthManager.flushPending()
             when (V2GetAuthManager.syncAccount()) {
                 V2GetAuthManager.SyncResult.Unauthorized -> "نشست حساب منقضی شده است؛ دوباره وارد شوید."
-                else -> {
-                    // The geo files first: a routing rule naming a missing list makes the core refuse the whole configuration.
-                    V2GetGeoFiles.ensure()
-                    V2GetConfigSource.refreshProfile()
-                }
+                // The geo files first, and the connection stops here without them: a routing rule naming a missing
+                // list makes the core refuse the whole configuration, with a message that says little.
+                else -> V2GetGeoFiles.ensure() ?: V2GetConfigSource.refreshProfile()
             }
         }
         if (failure != null) {
