@@ -136,6 +136,12 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
         countryJob = viewModelScope.launch {
             repeat(COUNTRY_ATTEMPTS) { attempt ->
                 delay(if (attempt == 0) 2_000L else 4_000L)
+                // The core's own process looks the country up too, for its notification: when it already did, this one
+                // only reads the result instead of asking the address service a second time.
+                if (V2GetConfigSource.countryOf(guid) != null) {
+                    _uiState.update { it.copy(servers = V2GetConfigSource.loadServers()) }
+                    return@launch
+                }
                 val code = withContext(Dispatchers.IO) { V2GetConfigSource.detectExitCountry() }
                 if (code != null) {
                     withContext(Dispatchers.IO) { V2GetConfigSource.saveCountry(guid, code) }
@@ -287,9 +293,10 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
         // Aether servers keep the TCP answer of the start as their result: they have no real test.
         val pending = alternatives.ifEmpty { _uiState.value.servers.map { it.guid } }
             .filter { it != connected && byGuid[it]?.let { needsRealTest(it) } != false }
+        // The running state is announced more than once for one connection: a test already under way is left alone.
+        if (backgroundJob?.isActive == true) return
         alternatives = emptyList()
         if (pending.isEmpty() || isWeakDevice()) return
-        backgroundJob?.cancel()
         backgroundJob = viewModelScope.launch {
             // The connection settles first: a second core beside a core that is still starting is what an old phone
             // cannot carry, so the tests begin only once it has been up for a while, and only a few.

@@ -50,10 +50,7 @@ object V2GetAuthManager {
                 } else {
                     null
                 }
-                val result = parseLogin(code, body, username)
-                // Moment 1 of 4 the usage is told to the panel (sign-in): what an earlier run left waiting goes now.
-                if (result is LoginResult.Success) flushPending()
-                result
+                parseLogin(code, body, username)
             } catch (e: Exception) {
                 // The request carries the password, so only the failure itself is logged.
                 LogUtil.e(AppConfig.TAG, "V2GetAuthManager: login request failed", e)
