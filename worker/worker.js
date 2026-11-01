@@ -88,6 +88,9 @@ function userView(user, nowMs) {
   };
 }
 
+/** How many of a user's latest report ids are kept to recognise a report sent twice. */
+const SEEN_REPORTS = 24;
+
 const getUser = (env, username) => env.V2GET_KV.get(`user:${username}`, { type: "json" });
 const putUser = (env, user) => env.V2GET_KV.put(`user:${user.username}`, JSON.stringify(user));
 
@@ -117,7 +120,8 @@ async function login(request, env, nowMs) {
   }
   if (user.disabled) return json({ error: "account_disabled" }, 403);
 
-  await env.V2GET_KV.delete(failKey);
+  // Nothing is deleted when nothing failed: a delete is an operation of the plan like any other.
+  if (fails > 0) await env.V2GET_KV.delete(failKey);
   const token = toB64Url(crypto.getRandomValues(new Uint8Array(32)));
   const tokenId = toHex(await sha256(token));
   await env.V2GET_KV.put(`sess:${tokenId}`, JSON.stringify({ username, created: nowMs }), {
@@ -154,13 +158,18 @@ async function usage(request, env, user, nowMs) {
     return json({ error: "invalid_report" }, 400);
   }
 
-  // The same report sent twice counts once. KV is not atomic, so two reports landing at the same moment
-  // can lose one; move to D1 or a Durable Object when exact counting matters.
-  const reportKey = `use:${user.username}:${sessionId}:${seq}`;
-  if (!(await env.V2GET_KV.get(reportKey))) {
-    user.usedBytes += up + down;
-    await putUser(env, user);
-    await env.V2GET_KV.put(reportKey, "1", { expirationTtl: 2 * 24 * 3600 });
+  // KV's free plan allows 1000 writes a day, so a report costs exactly one write: the user record itself. The same
+  // report sent twice counts once, because the record keeps the ids of its last reports (no key of its own per
+  // report). A report with nothing in it writes nothing. KV is not atomic, so two reports landing at the same
+  // moment can lose one; move to D1 or a Durable Object when exact counting matters.
+  if (up + down > 0) {
+    const reportId = `${sessionId}:${seq}`;
+    const seen = Array.isArray(user.seen) ? user.seen : [];
+    if (!seen.includes(reportId)) {
+      user.usedBytes += up + down;
+      user.seen = [...seen, reportId].slice(-SEEN_REPORTS);
+      await putUser(env, user);
+    }
   }
   const state = accountState(user, nowMs);
   return json({

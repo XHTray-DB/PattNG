@@ -288,15 +288,26 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
         val pending = alternatives.ifEmpty { _uiState.value.servers.map { it.guid } }
             .filter { it != connected && byGuid[it]?.let { needsRealTest(it) } != false }
         alternatives = emptyList()
-        if (pending.isEmpty()) return
+        if (pending.isEmpty() || isWeakDevice()) return
         backgroundJob?.cancel()
         backgroundJob = viewModelScope.launch {
-            for (guid in pending) {
+            // The connection settles first: a second core beside a core that is still starting is what an old phone
+            // cannot carry, so the tests begin only once it has been up for a while, and only a few.
+            delay(BACKGROUND_TEST_DELAY_MS)
+            for (guid in pending.take(BACKGROUND_TEST_MAX)) {
                 if (_uiState.value.connection != V2GetConnection.Connected) return@launch
                 dataSource.clearAllTestDelayResults(listOf(guid))
                 if (runServerTest(listOf(guid), onlyTcp = false, budgetMs = REAL_BUDGET_MS) == false) return@launch
             }
         }
+    }
+
+    /** A phone with little memory: the extra cores of the background tests would crowd out the tunnel's own. */
+    private fun isWeakDevice(): Boolean = try {
+        val manager = com.v2ray.ang.AngApplication.application.getSystemService(android.app.ActivityManager::class.java)
+        manager == null || manager.isLowRamDevice || manager.memoryClass < WEAK_DEVICE_MEMORY_CLASS_MB
+    } catch (e: Exception) {
+        true
     }
 
     /**
@@ -360,6 +371,13 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
     companion object {
         private const val COUNTRY_ATTEMPTS = 4
         private const val TCP_BUDGET_MS = 10_000L
+
+        /** The background tests wait this long after the connection is up, and test at most this many servers. */
+        private const val BACKGROUND_TEST_DELAY_MS = 20_000L
+        private const val BACKGROUND_TEST_MAX = 5
+
+        /** Below this heap class (in MB) a phone is treated as weak and runs no background tests. */
+        private const val WEAK_DEVICE_MEMORY_CLASS_MB = 192
 
         /** One server's real test; the servers are tried one at a time, so a dead one costs no more than this. */
         private const val REAL_BUDGET_MS = 10_000L

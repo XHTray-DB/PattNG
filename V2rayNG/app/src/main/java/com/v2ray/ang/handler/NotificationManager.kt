@@ -46,6 +46,7 @@ object NotificationManager {
      * pass null once it can. The Aether warm-up uses it, since Xray is up before the tunnel
      * behind it is.
      */
+    @Synchronized
     fun setStatusLine(text: String?) {
         statusLine = text
         val builder = mBuilder ?: return
@@ -60,6 +61,7 @@ object NotificationManager {
         V2GetConfigSource.countryOf(guid)?.let { V2GetCountry.title(it, "") }?.takeIf { it.isNotBlank() }
 
     /** Shows where the tunnel exits, as soon as it is known; null removes the line. */
+    @Synchronized
     fun setLocation(text: String?) {
         val builder = mBuilder ?: return
         builder.setSubText(text?.takeIf { it.isNotBlank() })
@@ -211,6 +213,7 @@ object NotificationManager {
      * @param proxyTraffic The proxy traffic.
      * @param directTraffic The direct traffic.
      */
+    @Synchronized
     private fun updateNotification(contentText: String?, proxyTraffic: Long, directTraffic: Long) {
         // Taken once: the speed job runs on its own thread, and a stop clears the builder meanwhile.
         val builder = mBuilder ?: return

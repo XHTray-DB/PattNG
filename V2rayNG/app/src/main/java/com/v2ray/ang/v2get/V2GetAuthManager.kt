@@ -50,7 +50,10 @@ object V2GetAuthManager {
                 } else {
                     null
                 }
-                parseLogin(code, body, username)
+                val result = parseLogin(code, body, username)
+                // Moment 1 of 4 the usage is told to the panel (sign-in): what an earlier run left waiting goes now.
+                if (result is LoginResult.Success) flushPending()
+                result
             } catch (e: Exception) {
                 // The request carries the password, so only the failure itself is logged.
                 LogUtil.e(AppConfig.TAG, "V2GetAuthManager: login request failed", e)
@@ -145,31 +148,42 @@ object V2GetAuthManager {
         }
     }
 
-    // A usage report is written down before it is sent and struck out once the panel took it, so a report
-    // the process did not live to send, or the network refused, goes out with the next connection. The panel
-    // counts a (session, seq) once, so the same report may be sent again.
+    // The usage is told to the panel at four moments only: signing in, signing out, a connection starting and a
+    // connection ending (the panel's storage allows a limited number of writes a day, so there is no report while a
+    // connection runs). A report is written down before it is sent and struck out once the panel took it, so a report
+    // the process did not live to send, or the network refused, goes out at the next moment. The panel counts a
+    // (session, seq) once, so the same report may be sent again.
     private const val KEY_PENDING = "V2GET_PENDING_REPORTS"
+
+    /** Held only while the waiting list is read or written, never while a request is on the wire. */
+    private val pendingLock = Any()
+
+    /** Held by the one flush that is running, so two do not send the same report at once. */
+    private val flushLock = Any()
 
     private fun readPending(): org.json.JSONArray =
         runCatching { org.json.JSONArray(MmkvManager.decodeSettingsString(KEY_PENDING).orEmpty().ifEmpty { "[]" }) }
             .getOrDefault(org.json.JSONArray())
 
-    @Synchronized
     private fun writePending(array: org.json.JSONArray) {
         MmkvManager.encodeSettings(KEY_PENDING, array.toString())
     }
 
+    private fun reportKey(item: org.json.JSONObject) = "${item.optString("sid")}:${item.optInt("seq")}"
+
     /**
      * Writes one report of a session's traffic down, without sending it ([seq] counts the session's reports from 0).
      * Quick, so that the bytes move from the live counters to the waiting reports at once and the usage the screens
-     * show, which adds the two, never dips between them.
+     * show, which adds the two, never dips between them. The report belongs to the account signed in now.
      */
-    @Synchronized
     fun queueUsage(sessionId: String, seq: Int, up: Long, down: Long) {
         if (up <= 0 && down <= 0) return
-        val list = readPending()
-        list.put(org.json.JSONObject().put("sid", sessionId).put("seq", seq).put("up", up).put("down", down))
-        writePending(list)
+        val owner = V2GetSession.load()?.username.orEmpty()
+        synchronized(pendingLock) {
+            val list = readPending()
+            list.put(org.json.JSONObject().put("sid", sessionId).put("seq", seq).put("up", up).put("down", down).put("user", owner))
+            writePending(list)
+        }
     }
 
     /** Writes one report of a session's traffic down and sends everything waiting. Blocking. */
@@ -179,30 +193,46 @@ object V2GetAuthManager {
     }
 
     /** The bytes of the reports still waiting for the panel: used, but not yet in the panel's figure. */
-    @Synchronized
-    fun pendingBytes(): Long {
+    fun pendingBytes(): Long = synchronized(pendingLock) {
         val list = readPending()
         var total = 0L
         for (i in 0 until list.length()) {
             val item = list.optJSONObject(i) ?: continue
             total += item.optLong("up", 0L) + item.optLong("down", 0L)
         }
-        return total
+        total
     }
 
-    /** Sends the waiting usage reports; the ones refused stay. Returns whether none is left. Blocking. */
-    @Synchronized
-    fun flushPending(): Boolean {
-        val list = readPending()
-        if (list.length() == 0) return true
+    /**
+     * Sends the waiting usage reports of the account signed in; the ones refused stay. A report that belongs to
+     * another account is dropped: it must not be charged to this one. Returns whether none is left. Blocking.
+     */
+    fun flushPending(): Boolean = synchronized(flushLock) {
         val session = V2GetSession.load() ?: return false
-        val left = org.json.JSONArray()
-        for (i in 0 until list.length()) {
-            val item = list.getJSONObject(i)
-            if (!sendReport(session, item)) left.put(item)
+        val snapshot = synchronized(pendingLock) { readPending() }
+        if (snapshot.length() == 0) return true
+        val done = HashSet<String>()
+        for (i in 0 until snapshot.length()) {
+            val item = snapshot.optJSONObject(i) ?: continue
+            val owner = item.optString("user")
+            // A report of another account is never sent with this account's token.
+            if (owner.isNotEmpty() && owner != session.username) {
+                done.add(reportKey(item))
+                continue
+            }
+            if (sendReport(session, item)) done.add(reportKey(item))
         }
-        writePending(left)
-        return left.length() == 0
+        // Struck out from the list as it is now: a report queued meanwhile stays.
+        synchronized(pendingLock) {
+            val current = readPending()
+            val left = org.json.JSONArray()
+            for (i in 0 until current.length()) {
+                val item = current.optJSONObject(i) ?: continue
+                if (reportKey(item) !in done) left.put(item)
+            }
+            writePending(left)
+            left.length() == 0
+        }
     }
 
     private fun sendReport(session: V2GetSession, item: org.json.JSONObject): Boolean {
@@ -244,6 +274,10 @@ object V2GetAuthManager {
 
     /** Forgets the account and its profile; the caller stops a running service first. */
     fun logout() {
+        // Moment 2 of 4 (sign-out): the usage of the connection just stopped is waited for, then told to the panel,
+        // before the account that owns it is forgotten.
+        V2GetTraffic.settleBeforeSignOut()
+        flushPending()
         V2GetSession.clear()
         MmkvManager.encodeSettings(KEY_PENDING, "")
         V2GetConfigSource.clear()
