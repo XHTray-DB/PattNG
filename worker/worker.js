@@ -1,7 +1,13 @@
 /**
  * V2GET API (Cloudflare Worker)
  *
- * Bindings: V2GET_KV (KV namespace), ADMIN_SECRET (secret).
+ * Bindings: DB (D1 database), ADMIN_SECRET (secret). V2GET_KV (the old KV namespace) is optional: while it is bound,
+ * a user or a session that is not in D1 yet is read from it once and copied over, so nobody has to sign in again;
+ * remove the binding when the move is done.
+ *
+ * Why D1 and not KV: KV's free plan allows 1000 writes a day, D1's allows 100,000 rows written and 5 million rows read.
+ * D1 also does the counting in one atomic statement, so two reports at the same moment are both counted.
+ *
  * Passwords are stored as PBKDF2-SHA256 hashes; sessions are random tokens stored hashed.
  * Time is the Worker's own: quota and expiry are decided here, never by the phone's clock.
  */
@@ -13,6 +19,7 @@ const MAX_FAILS = 10;
 const FAIL_WINDOW = 900;
 const MAX_DELTA = 50 * 1024 ** 3;
 const DUMMY_SALT = new Uint8Array(16);
+const REPORT_KEEP_MS = 2 * 24 * 3600 * 1000; // how long a report id is remembered
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -88,11 +95,106 @@ function userView(user, nowMs) {
   };
 }
 
-/** How many of a user's latest report ids are kept to recognise a report sent twice. */
-const SEEN_REPORTS = 24;
+// ---------------------------------------------------------------------------------------------------------------
+// Storage (D1). The tables are created by the Worker itself the first time it runs, so there is nothing to paste
+// into a console; the same statements are in schema.sql for anyone who prefers to.
+// ---------------------------------------------------------------------------------------------------------------
 
-const getUser = (env, username) => env.V2GET_KV.get(`user:${username}`, { type: "json" });
-const putUser = (env, user) => env.V2GET_KV.put(`user:${user.username}`, JSON.stringify(user));
+const SCHEMA = [
+  `CREATE TABLE IF NOT EXISTS users (
+    username TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL DEFAULT '',
+    salt TEXT NOT NULL,
+    hash TEXT NOT NULL,
+    iterations INTEGER NOT NULL DEFAULT 100000,
+    quota_bytes INTEGER NOT NULL DEFAULT 0,
+    used_bytes INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT NOT NULL DEFAULT '',
+    plan TEXT NOT NULL DEFAULT '',
+    disabled INTEGER NOT NULL DEFAULT 0
+  )`,
+  `CREATE TABLE IF NOT EXISTS sessions (
+    token_id TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    created INTEGER NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS login_fails (
+    username TEXT PRIMARY KEY,
+    count INTEGER NOT NULL,
+    last_at INTEGER NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS reports (
+    username TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (username, session_id, seq)
+  )`,
+];
+
+let schemaReady = null;
+
+/** Creates the tables once per Worker instance; a table that exists costs no row. */
+function ensureSchema(env) {
+  if (!schemaReady) {
+    schemaReady = env.DB.batch(SCHEMA.map((sql) => env.DB.prepare(sql))).catch((error) => {
+      schemaReady = null;
+      throw error;
+    });
+  }
+  return schemaReady;
+}
+
+function rowToUser(row) {
+  if (!row) return null;
+  return {
+    username: row.username,
+    displayName: row.display_name,
+    salt: row.salt,
+    hash: row.hash,
+    iterations: row.iterations,
+    quotaBytes: row.quota_bytes,
+    usedBytes: row.used_bytes,
+    expiresAt: row.expires_at,
+    plan: row.plan,
+    disabled: Boolean(row.disabled),
+  };
+}
+
+const insertUserSql = `INSERT OR IGNORE INTO users
+  (username, display_name, salt, hash, iterations, quota_bytes, used_bytes, expires_at, plan, disabled)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+/** A user of the old KV storage copied into D1 once (INSERT OR IGNORE: a user already in D1 is never overwritten). */
+async function importKvUser(env, username) {
+  if (!env.V2GET_KV) return;
+  const old = await env.V2GET_KV.get(`user:${username}`, { type: "json" });
+  if (!old || !old.salt || !old.hash) return;
+  await env.DB.prepare(insertUserSql)
+    .bind(
+      username,
+      old.displayName || "",
+      old.salt,
+      old.hash,
+      old.iterations || PBKDF2_ITERATIONS,
+      Math.max(0, Math.round(old.quotaBytes || 0)),
+      Math.max(0, Math.round(old.usedBytes || 0)),
+      old.expiresAt || "",
+      old.plan || "",
+      old.disabled ? 1 : 0,
+    )
+    .run();
+}
+
+async function getUser(env, username) {
+  const query = () => env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(username).first();
+  let row = await query();
+  if (!row && env.V2GET_KV) {
+    await importKvUser(env, username);
+    row = await query();
+  }
+  return rowToUser(row);
+}
 
 async function login(request, env, nowMs) {
   const body = await readJson(request);
@@ -102,8 +204,9 @@ async function login(request, env, nowMs) {
     return json({ error: "invalid_credentials" }, 401);
   }
 
-  const failKey = `fail:${username}`;
-  const fails = parseInt((await env.V2GET_KV.get(failKey)) || "0", 10);
+  const failRow = await env.DB.prepare("SELECT count, last_at FROM login_fails WHERE username = ?").bind(username).first();
+  // The count lives for FAIL_WINDOW seconds after the last failure.
+  const fails = failRow && nowMs - failRow.last_at < FAIL_WINDOW * 1000 ? failRow.count : 0;
   if (fails >= MAX_FAILS) return json({ error: "too_many_attempts" }, 429);
 
   const user = await getUser(env, username);
@@ -115,20 +218,27 @@ async function login(request, env, nowMs) {
   );
   const ok = user && equalBytes(derived, fromHex(user.hash));
   if (!ok) {
-    await env.V2GET_KV.put(failKey, String(fails + 1), { expirationTtl: FAIL_WINDOW });
+    await env.DB.prepare(
+      "INSERT INTO login_fails (username, count, last_at) VALUES (?, ?, ?) " +
+        "ON CONFLICT(username) DO UPDATE SET count = excluded.count, last_at = excluded.last_at",
+    )
+      .bind(username, fails + 1, nowMs)
+      .run();
     return json({ error: "invalid_credentials" }, 401);
   }
   if (user.disabled) return json({ error: "account_disabled" }, 403);
 
-  // Nothing is deleted when nothing failed: a delete is an operation of the plan like any other.
-  if (fails > 0) await env.V2GET_KV.delete(failKey);
   const token = toB64Url(crypto.getRandomValues(new Uint8Array(32)));
   const tokenId = toHex(await sha256(token));
-  await env.V2GET_KV.put(`sess:${tokenId}`, JSON.stringify({ username, created: nowMs }), {
-    expirationTtl: SESSION_TTL,
-  });
+  const statements = [
+    env.DB.prepare("INSERT INTO sessions (token_id, username, created) VALUES (?, ?, ?)").bind(tokenId, username, nowMs),
+    // Expired sessions are swept when someone signs in; nothing else ever removes them.
+    env.DB.prepare("DELETE FROM sessions WHERE created < ?").bind(nowMs - SESSION_TTL * 1000),
+  ];
+  // Nothing is deleted when nothing failed: a row that is not there costs nothing to leave alone.
+  if (failRow) statements.push(env.DB.prepare("DELETE FROM login_fails WHERE username = ?").bind(username));
+  await env.DB.batch(statements);
 
-  const state = accountState(user, nowMs);
   return json({
     success: true,
     token,
@@ -138,13 +248,30 @@ async function login(request, env, nowMs) {
   });
 }
 
-async function sessionUser(request, env) {
+async function sessionUser(request, env, nowMs) {
   const header = request.headers.get("Authorization") || "";
   if (!header.startsWith("Bearer ")) return null;
   const tokenId = toHex(await sha256(header.slice(7).trim()));
-  const session = await env.V2GET_KV.get(`sess:${tokenId}`, { type: "json" });
-  if (!session) return null;
-  return getUser(env, session.username);
+  const minCreated = nowMs - SESSION_TTL * 1000;
+  const find = () =>
+    env.DB.prepare(
+      "SELECT u.* FROM sessions s JOIN users u ON u.username = s.username WHERE s.token_id = ? AND s.created > ?",
+    )
+      .bind(tokenId, minCreated)
+      .first();
+  let row = await find();
+  if (!row && env.V2GET_KV) {
+    // A session made before the move to D1: copied over once, with its own creation time, so it expires when it would have.
+    const old = await env.V2GET_KV.get(`sess:${tokenId}`, { type: "json" });
+    if (old && old.username && Number(old.created) > minCreated) {
+      await importKvUser(env, old.username);
+      await env.DB.prepare("INSERT OR IGNORE INTO sessions (token_id, username, created) VALUES (?, ?, ?)")
+        .bind(tokenId, old.username, Number(old.created))
+        .run();
+      row = await find();
+    }
+  }
+  return rowToUser(row);
 }
 
 async function usage(request, env, user, nowMs) {
@@ -158,18 +285,26 @@ async function usage(request, env, user, nowMs) {
     return json({ error: "invalid_report" }, 400);
   }
 
-  // KV's free plan allows 1000 writes a day, so a report costs exactly one write: the user record itself. The same
-  // report sent twice counts once, because the record keeps the ids of its last reports (no key of its own per
-  // report). A report with nothing in it writes nothing. KV is not atomic, so two reports landing at the same
-  // moment can lose one; move to D1 or a Durable Object when exact counting matters.
   if (up + down > 0) {
-    const reportId = `${sessionId}:${seq}`;
-    const seen = Array.isArray(user.seen) ? user.seen : [];
-    if (!seen.includes(reportId)) {
-      user.usedBytes += up + down;
-      user.seen = [...seen, reportId].slice(-SEEN_REPORTS);
-      await putUser(env, user);
-    }
+    // One atomic batch: the report id is recorded, and the bytes are added only when it was not there yet (changes()
+    // is 1 after an insert that happened, 0 after one that was ignored). The same report sent twice counts once, and
+    // two reports at the same moment are both counted, because the addition is done by the database itself.
+    await env.DB.batch([
+      env.DB.prepare("INSERT OR IGNORE INTO reports (username, session_id, seq, at) VALUES (?, ?, ?, ?)").bind(
+        user.username,
+        sessionId,
+        seq,
+        nowMs,
+      ),
+      env.DB.prepare("UPDATE users SET used_bytes = used_bytes + ? WHERE username = ? AND changes() > 0").bind(
+        up + down,
+        user.username,
+      ),
+      // Report ids only matter while a phone may still resend one.
+      env.DB.prepare("DELETE FROM reports WHERE at < ?").bind(nowMs - REPORT_KEEP_MS),
+    ]);
+    const fresh = await env.DB.prepare("SELECT used_bytes FROM users WHERE username = ?").bind(user.username).first();
+    if (fresh) user.usedBytes = fresh.used_bytes;
   }
   const state = accountState(user, nowMs);
   return json({
@@ -201,13 +336,38 @@ async function adminUser(request, env, nowMs) {
   if (body.days !== undefined) user.expiresAt = new Date(nowMs + Number(body.days) * 86400000).toISOString().slice(0, 10);
   if (typeof body.expiresAt === "string") user.expiresAt = body.expiresAt;
   if (body.disabled !== undefined) user.disabled = Boolean(body.disabled);
-  if (body.resetUsage) user.usedBytes = 0;
+  const resetUsage = Boolean(body.resetUsage);
+  if (resetUsage) user.usedBytes = 0;
   if (typeof body.displayName === "string") user.displayName = body.displayName;
   if (typeof body.plan === "string") user.plan = body.plan;
   user.quotaBytes = user.quotaBytes ?? 0;
 
-  await putUser(env, user);
-  return json({ ok: true, user: userView(user, nowMs) });
+  // An upsert that leaves used_bytes alone unless the usage is reset: a report that lands meanwhile is not overwritten.
+  await env.DB.prepare(
+    `INSERT INTO users (username, display_name, salt, hash, iterations, quota_bytes, used_bytes, expires_at, plan, disabled)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(username) DO UPDATE SET
+       display_name = excluded.display_name, salt = excluded.salt, hash = excluded.hash,
+       iterations = excluded.iterations, quota_bytes = excluded.quota_bytes, expires_at = excluded.expires_at,
+       plan = excluded.plan, disabled = excluded.disabled,
+       used_bytes = CASE WHEN ? THEN 0 ELSE users.used_bytes END`,
+  )
+    .bind(
+      username,
+      user.displayName || "",
+      user.salt,
+      user.hash,
+      user.iterations || PBKDF2_ITERATIONS,
+      user.quotaBytes,
+      user.usedBytes || 0,
+      user.expiresAt || "",
+      user.plan || "",
+      user.disabled ? 1 : 0,
+      resetUsage ? 1 : 0,
+    )
+    .run();
+  const saved = (await getUser(env, username)) || user;
+  return json({ ok: true, user: userView(saved, nowMs) });
 }
 
 export default {
@@ -216,16 +376,21 @@ export default {
     const nowMs = Date.now();
     const path = url.pathname;
 
-    if (!env.V2GET_KV) return json({ error: "kv_not_bound" }, 500);
+    if (!env.DB) return json({ error: "d1_not_bound" }, 500);
 
     if ((path === "/" || path === "/api/health") && request.method === "GET") {
       return json({ status: "online", brand: "V2GET", server_time: Math.floor(nowMs / 1000) });
+    }
+    try {
+      await ensureSchema(env);
+    } catch (error) {
+      return json({ error: "db_unavailable", detail: String((error && error.message) || error) }, 500);
     }
     if (path === "/api/v1/auth/login" && request.method === "POST") return login(request, env, nowMs);
     if (path === "/api/v1/admin/user" && request.method === "POST") return adminUser(request, env, nowMs);
 
     if (path === "/api/v1/user/account" || path === "/api/v1/usage") {
-      const user = await sessionUser(request, env);
+      const user = await sessionUser(request, env, nowMs);
       if (!user) return json({ error: "unauthorized" }, 401);
       if (path === "/api/v1/user/account" && request.method === "GET") {
         return json({ server_time: Math.floor(nowMs / 1000), user: userView(user, nowMs) });

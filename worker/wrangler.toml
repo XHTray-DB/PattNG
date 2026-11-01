@@ -2,10 +2,18 @@ name = "v2get-api"
 main = "worker.js"
 compatibility_date = "2026-10-01"
 
-# Create the namespace first:  npx wrangler kv namespace create V2GET_KV
-[[kv_namespaces]]
-binding = "V2GET_KV"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+# Create the database first:  npx wrangler d1 create v2get
+# The Worker creates its tables itself on first use (schema.sql holds the same statements).
+[[d1_databases]]
+binding = "DB"
+database_name = "v2get"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+# Only while moving from KV: users and sessions still in the old namespace are copied into D1 as they are used.
+# Remove this block when the move is done.
+# [[kv_namespaces]]
+# binding = "V2GET_KV"
+# id = "REPLACE_WITH_KV_NAMESPACE_ID"
 
 [vars]
 
