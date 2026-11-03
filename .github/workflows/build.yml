@@ -19,12 +19,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      # The latest stable release, as aether's own release workflow builds with. The libaether
-      # cache is keyed by the rustc it installs, so a new stable release builds the core afresh.
       RUST_TOOLCHAIN: "stable"
-      # The Go line the Psiphon client's go.mod asks for, which also covers lyrebird's older one;
-      # aether/psiphon-build.sh and aether/pt-build.sh pin the programs themselves. Bump it when a
-      # bumped aether submodule pins a program that asks for a newer line.
       GO_VERSION: "1.26"
 
     steps:
@@ -100,11 +95,8 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: ${{ env.GO_VERSION }}
-        # The client is built from a checkout of its own; there is no go.sum here to cache by.
         cache: false
 
-    # The Aether core runs Psiphon as a program of its own, the psiphon-tunnel-core console client,
-    # which the app ships beside the core as libpsiphon-tunnel-core.so; see compile-psiphon.sh.
     - name: Restore cached Psiphon client
       id: cache-psiphon-restore
       uses: actions/cache/restore@v6
@@ -124,8 +116,6 @@ jobs:
         path: ${{ github.workspace }}/libs-psiphon
         key: psiphon-${{ runner.os }}-${{ env.GO_VERSION }}-${{ hashFiles('aether/psiphon-build.sh') }}-${{ hashFiles('compile-psiphon.sh') }}
 
-    # Tor's bridges run through a pluggable transport, a program of its own: lyrebird, which aether
-    # builds and the app ships beside the core as liblyrebird.so; see compile-pt.sh.
     - name: Restore cached pluggable transport
       id: cache-pt-restore
       uses: actions/cache/restore@v6
@@ -152,14 +142,10 @@ jobs:
         cp -r ${{ github.workspace }}/libs-psiphon/. ${{ github.workspace }}/V2rayNG/app/libs/
         cp -r ${{ github.workspace }}/libs-pt/. ${{ github.workspace }}/V2rayNG/app/libs/
 
-    # Psiphon's client starts with the newest server list the build could fetch, so a fresh install has
-    # servers before it can reach the list on its own; see fetch-psiphon-servers.sh.
     - name: Fetch the Psiphon server list
       run: |
         bash fetch-psiphon-servers.sh
 
-    # The routing names geosite: and geoip: lists, and the core refuses a configuration whose list file is
-    # missing; *.dat is git-ignored, so the build fetches them; see fetch-geo.sh.
     - name: Fetch the geo files
       run: |
         bash fetch-geo.sh
@@ -186,11 +172,6 @@ jobs:
         distribution: 'temurin'
         java-version: '21'
 
-    # Android installs an update only over an app signed with the same key. A key made fresh on every run
-    # gave every build its own signature, so no build could update the one before it and Play Protect saw
-    # an unknown signer each time. The release key lives in the repository secrets: ANDROID_KEYSTORE_BASE64
-    # (the .jks, base64), ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD.
-    # A release (release_tag set) without it stops here; a plain push build falls back to a throwaway key.
     - name: Prepare the signing keystore
       id: android_keystore
       env:
@@ -222,16 +203,19 @@ jobs:
         cd ${{ github.workspace }}/V2rayNG
         echo "sdk.dir=${ANDROID_HOME}" > local.properties
         chmod 755 gradlew
-        # The JVM unit tests are the only automated check of the Kotlin logic; a failure stops the
-        # build before anything is assembled or signed.
+
         ./gradlew :app:testPlaystoreDebugUnitTest
-        ./gradlew licenseFdroidReleaseReport
-        ./gradlew assembleRelease -PpattngVersion="${{ inputs.release_tag }}" -Pv2getApiUrl="${{ vars.V2GET_API_URL }}" -Pandroid.injected.signing.store.file=${{ steps.android_keystore.outputs.filePath }} -Pandroid.injected.signing.store.password="$KS_PASS" -Pandroid.injected.signing.key.alias="$KEY_ALIAS" -Pandroid.injected.signing.key.password="$KEY_PASS"
+
+        ./gradlew :app:assemblePlaystoreRelease \
+          -PpattngVersion="${{ inputs.release_tag }}" \
+          -Pv2getApiUrl="${{ vars.V2GET_API_URL }}" \
+          -Pandroid.injected.signing.store.file=${{ steps.android_keystore.outputs.filePath }} \
+          -Pandroid.injected.signing.store.password="$KS_PASS" \
+          -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+          -Pandroid.injected.signing.key.password="$KEY_PASS"
 
     - name: Check the native libraries in the APKs
       run: |
-        # Looked into as ZIP files: every ABI the Aether core is built for has to carry the core, its
-        # Psiphon client and its pluggable transport, and each APK's native files are listed for the record.
         status=0
         for apk in ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*.apk; do
           entries=$(unzip -Z1 "$apk" | grep '^lib/' || true)
@@ -251,21 +235,21 @@ jobs:
 
     - name: Upload arm64-v8a APK
       uses: actions/upload-artifact@v7
-      if: ${{  success() }}
+      if: ${{ success() }}
       with:
         name: arm64-v8a
         path: ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*arm64-v8a*.apk
 
     - name: Upload armeabi-v7a APK
       uses: actions/upload-artifact@v7
-      if: ${{  success() }}
+      if: ${{ success() }}
       with:
         name: armeabi-v7a
         path: ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*armeabi-v7a*.apk
 
     - name: Upload x86 APK
       uses: actions/upload-artifact@v7
-      if: ${{  success() }}
+      if: ${{ success() }}
       with:
         name: x86-apk
         path: ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*x86*.apk
@@ -290,7 +274,6 @@ jobs:
 
       - name: Sign APK files
         run: |
-          # Quiet: a plain import prints the key's user ID, name and email, into the public log.
           printf '%s' "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --quiet --import
           KEY=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')
           mkdir -p release-files
