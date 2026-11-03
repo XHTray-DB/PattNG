@@ -38,6 +38,8 @@ sealed class V2GetNotice {
     data class StartFailure(val reason: String) : V2GetNotice()
     /** A failure before the core starts (account check, configuration download); shown in a dialog like a start failure. */
     data class Failure(val reason: String) : V2GetNotice()
+    /** The panel refuses this app version; the update screen is shown. */
+    data class UpdateRequired(val info: com.v2ray.ang.v2get.V2GetUpdateInfo) : V2GetNotice()
 }
 
 /** What a connection start is doing before the core starts: the servers are measured to find the best one. */
@@ -207,14 +209,23 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
      */
     suspend fun prepareStart(auto: Boolean = false): Boolean {
         _uiState.update { it.copy(connection = V2GetConnection.Connecting) }
+        var update: com.v2ray.ang.v2get.V2GetUpdateInfo? = null
         val failure: String? = withContext(Dispatchers.IO) {
             V2GetAuthManager.flushPending()
-            when (V2GetAuthManager.syncAccount()) {
+            when (val synced = V2GetAuthManager.syncAccount()) {
                 V2GetAuthManager.SyncResult.Unauthorized -> "نشست حساب منقضی شده است؛ دوباره وارد شوید."
+                is V2GetAuthManager.SyncResult.UpdateRequired -> {
+                    update = synced.info
+                    "update"
+                }
                 // The geo files first, and the connection stops here without them: a routing rule naming a missing
                 // list makes the core refuse the whole configuration, with a message that says little.
                 else -> V2GetGeoFiles.ensure() ?: V2GetConfigSource.refreshProfile()
             }
+        }
+        update?.let { info ->
+            _uiState.update { it.copy(connection = V2GetConnection.Disconnected, notice = V2GetNotice.UpdateRequired(info)) }
+            return false
         }
         if (failure != null) {
             _uiState.update { it.copy(connection = V2GetConnection.Disconnected, notice = V2GetNotice.Failure(failure)) }

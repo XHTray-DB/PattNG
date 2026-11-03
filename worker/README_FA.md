@@ -17,3 +17,15 @@ curl -X POST https://WORKER_URL/api/v1/admin/user \
 همین دستور برای تمدید هم کار می‌کند (`days`، `quotaGB`، `"resetUsage":true`، `"disabled":true`).
 
 اگر لاگین خطای «Exceeded CPU» داد، پلن Workers Free برای هش PBKDF2 کم می‌آورد؛ پلن Paid (۵ دلار) مشکل را حل می‌کند.
+
+## آپدیت اجباری برنامه
+بعد از هر بیلد جدید (وقتی لینک APK آماده شد) یک بار این را بزن؛ نسخه‌ی قدیمی‌تر از `version` دیگر نه لاگین می‌شود نه وصل می‌شود و صفحه‌ی آپدیت با لینک می‌آید:
+```bash
+curl -X POST https://WORKER_URL/api/v1/admin/release \
+  -H "X-Admin-Secret: ADMIN_SECRET_TO" -H "Content-Type: application/json" \
+  -d '{"version":"2.3.14","url":"https://github.com/USER/REPO/releases/download/2.3.14/PattNG_2.3.14_arm64-v8a.apk","notes":"رفع باگ اتصال"}'
+```
+- `version` باید همان عددی باشد که به بیلد می‌دهی (`release_tag`، مثل `2.3.14`)، چون اپ `versionName` خودش را می‌فرستد.
+- `"force":false` فقط ثبت می‌کند و کسی را متوقف نمی‌کند (برای وقتی هنوز فایل آپلود نشده).
+- نسخه‌ی ثبت‌شده را بدون ورود می‌شود دید: `curl https://WORKER_URL/api/v1/app/latest`
+- نسخه‌های خیلی قدیمی که این چک را ندارند، خطای «سرور ۴۲۶» می‌بینند و باید دستی آپدیت شوند.

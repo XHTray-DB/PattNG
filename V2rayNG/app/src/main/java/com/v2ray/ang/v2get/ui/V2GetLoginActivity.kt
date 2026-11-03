@@ -55,6 +55,7 @@ import com.v2ray.ang.ui.base.BaseComponentActivity
 import com.v2ray.ang.v2get.V2GetAuthManager
 import com.v2ray.ang.v2get.V2GetConfigSource
 import com.v2ray.ang.v2get.V2GetSession
+import com.v2ray.ang.v2get.V2GetUpdateInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -73,6 +74,8 @@ data class V2GetLoginState(
     val loading: Boolean = false,
     val issue: V2GetLoginIssue? = null,
     val signedIn: Boolean = false,
+    /** Set when the panel refuses this app version: the update screen is shown. */
+    val update: V2GetUpdateInfo? = null,
 )
 
 class V2GetLoginViewModel(private val apiUrl: String = BuildConfig.V2GET_API_URL) : ViewModel() {
@@ -92,6 +95,8 @@ class V2GetLoginViewModel(private val apiUrl: String = BuildConfig.V2GET_API_URL
             val next = when (result) {
                 is V2GetAuthManager.LoginResult.Failure ->
                     V2GetLoginState(issue = V2GetLoginIssue.Failed(result.error, result.httpCode))
+
+                is V2GetAuthManager.LoginResult.UpdateRequired -> V2GetLoginState(update = result.info)
 
                 is V2GetAuthManager.LoginResult.Success -> withContext(Dispatchers.IO) {
                     // The configuration first: an account that cannot get its core is not signed in. The usage
@@ -123,6 +128,9 @@ class V2GetLoginActivity : BaseComponentActivity() {
                 startActivity(Intent(this@V2GetLoginActivity, V2GetMainActivity::class.java))
                 finish()
             }
+        }
+        LaunchedEffect(state.update) {
+            state.update?.show(this@V2GetLoginActivity)
         }
         // The design is written right to left, and the screens are Persian-only.
         V2GetThemeHost {

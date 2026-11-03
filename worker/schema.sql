@@ -30,3 +30,8 @@ CREATE TABLE IF NOT EXISTS reports (
     at INTEGER NOT NULL,
     PRIMARY KEY (username, session_id, seq)
   );
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);

@@ -105,6 +105,18 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
         // The service can have gone away while the screen was not shown, and the account page can have changed the figures.
         viewModel.refresh()
         lifecycleScope.launch { viewModel.reloadServers() }
+        checkAppVersion()
+    }
+
+    /** Asks the panel whether this app is still allowed, so an old app is stopped when opened, not only when it connects. */
+    private fun checkAppVersion() {
+        lifecycleScope.launch {
+            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                V2GetAuthManager.flushPending()
+                V2GetAuthManager.syncAccount()
+            }
+            if (result is V2GetAuthManager.SyncResult.UpdateRequired) result.info.show(this@V2GetMainActivity)
+        }
     }
 
     @Composable
@@ -126,6 +138,7 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
                     if (!tryNextServer()) errorText = notice.reason.ifBlank { context.getString(R.string.v2get_error_unknown) }
                 }
                 is V2GetNotice.Failure -> errorText = notice.reason
+                is V2GetNotice.UpdateRequired -> notice.info.show(context)
             }
             viewModel.noticeShown()
         }

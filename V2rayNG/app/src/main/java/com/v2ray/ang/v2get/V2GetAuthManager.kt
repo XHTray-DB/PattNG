@@ -22,7 +22,15 @@ object V2GetAuthManager {
     sealed class LoginResult {
         data class Success(val session: V2GetSession) : LoginResult()
         data class Failure(val error: LoginError, val httpCode: Int = 0) : LoginResult()
+        /** The panel knows a newer app and refuses this one. */
+        data class UpdateRequired(val info: V2GetUpdateInfo) : LoginResult()
     }
+
+    /** The app's own version, told to the panel with every sign-in and account check. */
+    private const val APP_VERSION_HEADER = "X-App-Version"
+
+    /** 426: the panel wants a newer app. */
+    private const val HTTP_UPGRADE_REQUIRED = 426
 
     fun isLoggedIn(): Boolean = V2GetSession.load() != null
 
@@ -35,6 +43,7 @@ object V2GetAuthManager {
                     requestMethod = "POST"
                     setRequestProperty("Content-Type", "application/json")
                     setRequestProperty("Accept", "application/json")
+                    setRequestProperty(APP_VERSION_HEADER, BuildConfig.VERSION_NAME)
                     doOutput = true
                     connectTimeout = 12_000
                     readTimeout = 12_000
@@ -45,10 +54,10 @@ object V2GetAuthManager {
                 }
                 conn.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
                 val code = conn.responseCode
-                val body = if (code == HttpURLConnection.HTTP_OK) {
-                    conn.inputStream.bufferedReader().use { it.readText() }
-                } else {
-                    null
+                val body = when (code) {
+                    HttpURLConnection.HTTP_OK -> conn.inputStream.bufferedReader().use { it.readText() }
+                    HTTP_UPGRADE_REQUIRED -> conn.errorStream?.bufferedReader()?.use { it.readText() }
+                    else -> null
                 }
                 parseLogin(code, body, username)
             } catch (e: Exception) {
@@ -72,6 +81,7 @@ object V2GetAuthManager {
             HttpURLConnection.HTTP_OK -> Unit
             HttpURLConnection.HTTP_UNAUTHORIZED, HttpURLConnection.HTTP_FORBIDDEN ->
                 return LoginResult.Failure(LoginError.BAD_CREDENTIALS, code)
+            HTTP_UPGRADE_REQUIRED -> return LoginResult.UpdateRequired(V2GetUpdateInfo.parse(body))
             else -> return LoginResult.Failure(LoginError.SERVER, code)
         }
         val root = try {
@@ -99,6 +109,7 @@ object V2GetAuthManager {
     sealed class SyncResult {
         data class Ok(val session: V2GetSession) : SyncResult()
         data object Unauthorized : SyncResult()
+        data class UpdateRequired(val info: V2GetUpdateInfo) : SyncResult()
         data class Failed(val reason: String) : SyncResult()
     }
 
@@ -126,6 +137,7 @@ object V2GetAuthManager {
                 requestMethod = "GET"
                 setRequestProperty("Authorization", "Bearer ${session.token}")
                 setRequestProperty("Accept", "application/json")
+                setRequestProperty(APP_VERSION_HEADER, BuildConfig.VERSION_NAME)
                 connectTimeout = 12_000
                 readTimeout = 12_000
             }
@@ -135,6 +147,8 @@ object V2GetAuthManager {
                     SyncResult.Ok(storeFigures(session, root.obj("user")))
                 }
                 HttpURLConnection.HTTP_UNAUTHORIZED, HttpURLConnection.HTTP_FORBIDDEN -> SyncResult.Unauthorized
+                HTTP_UPGRADE_REQUIRED ->
+                    SyncResult.UpdateRequired(V2GetUpdateInfo.parse(conn.errorStream?.bufferedReader()?.use { it.readText() }))
                 else -> SyncResult.Failed("HTTP $code")
             }
         } catch (e: Exception) {

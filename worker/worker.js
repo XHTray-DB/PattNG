@@ -123,6 +123,10 @@ const SCHEMA = [
     count INTEGER NOT NULL,
     last_at INTEGER NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS reports (
     username TEXT NOT NULL,
     session_id TEXT NOT NULL,
@@ -196,6 +200,79 @@ async function getUser(env, username) {
   return rowToUser(row);
 }
 
+
+// ---------------------------------------------------------------------------------------------------------------
+// App updates. The latest version and its download link live in D1 (table app_settings, key "release") and are set
+// with one curl (POST /api/v1/admin/release). The app sends its version in X-App-Version; a version older than the
+// latest gets 426 "update_required" with the link on login and on the account check, so it cannot go on.
+// ---------------------------------------------------------------------------------------------------------------
+
+/** "v2.3.14-beta" -> [2, 3, 14]; null when there is no number at all. */
+function parseVersion(value) {
+  const match = /^v?(\d+(?:\.\d+){0,3})/i.exec(String(value || "").trim());
+  return match ? match[1].split(".").map(Number) : null;
+}
+
+/** Negative when a is older than b, 0 when equal, positive when newer. */
+function compareVersions(a, b) {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const diff = (a[i] || 0) - (b[i] || 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+async function getRelease(env) {
+  const row = await env.DB.prepare("SELECT value FROM app_settings WHERE key = 'release'").first();
+  if (!row) return null;
+  try {
+    return JSON.parse(row.value);
+  } catch {
+    return null;
+  }
+}
+
+/** A 426 response when the app that asks is older than the latest release (and the release is forced), else null. */
+async function updateGate(request, env) {
+  const release = await getRelease(env);
+  if (!release || !release.force) return null;
+  const latest = parseVersion(release.version);
+  if (!latest) return null;
+  // An app that does not send its version is older than the check itself.
+  const current = parseVersion(request.headers.get("X-App-Version")) || [0];
+  if (compareVersions(current, latest) >= 0) return null;
+  return json(
+    { error: "update_required", latest_version: release.version, update_url: release.url, notes: release.notes || "" },
+    426,
+  );
+}
+
+async function adminRelease(request, env, nowMs) {
+  const given = request.headers.get("X-Admin-Secret") || "";
+  if (!env.ADMIN_SECRET || !equalBytes(await sha256(given), await sha256(env.ADMIN_SECRET))) {
+    return json({ error: "forbidden" }, 403);
+  }
+  const body = await readJson(request);
+  const version = String(body.version || "").trim().replace(/^v/i, "");
+  const url = String(body.url || "").trim();
+  if (!parseVersion(version)) return json({ error: "invalid_version" }, 400);
+  if (!/^https:\/\/[^\s]+$/i.test(url) || url.length > 1000) return json({ error: "invalid_url" }, 400);
+  const release = {
+    version,
+    url,
+    notes: typeof body.notes === "string" ? body.notes.slice(0, 500) : "",
+    // force:false only records the release; nobody is stopped until it is true.
+    force: body.force === undefined ? true : Boolean(body.force),
+    updatedAt: Math.floor(nowMs / 1000),
+  };
+  await env.DB.prepare(
+    "INSERT INTO app_settings (key, value) VALUES ('release', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  )
+    .bind(JSON.stringify(release))
+    .run();
+  return json({ ok: true, release });
+}
+
 async function login(request, env, nowMs) {
   const body = await readJson(request);
   const username = normalizeUsername(body.username);
@@ -203,6 +280,10 @@ async function login(request, env, nowMs) {
   if (!username || password.length < 1 || password.length > 256) {
     return json({ error: "invalid_credentials" }, 401);
   }
+
+  // An old app is stopped before any password work is done.
+  const outdated = await updateGate(request, env);
+  if (outdated) return outdated;
 
   const failRow = await env.DB.prepare("SELECT count, last_at FROM login_fails WHERE username = ?").bind(username).first();
   // The count lives for FAIL_WINDOW seconds after the last failure.
@@ -388,11 +469,19 @@ export default {
     }
     if (path === "/api/v1/auth/login" && request.method === "POST") return login(request, env, nowMs);
     if (path === "/api/v1/admin/user" && request.method === "POST") return adminUser(request, env, nowMs);
+    if (path === "/api/v1/admin/release" && request.method === "POST") return adminRelease(request, env, nowMs);
+    if (path === "/api/v1/app/latest" && request.method === "GET") {
+      const release = await getRelease(env);
+      return release ? json({ version: release.version, url: release.url }) : json({ error: "not_found" }, 404);
+    }
 
     if (path === "/api/v1/user/account" || path === "/api/v1/usage") {
       const user = await sessionUser(request, env, nowMs);
       if (!user) return json({ error: "unauthorized" }, 401);
       if (path === "/api/v1/user/account" && request.method === "GET") {
+        // The account check is what a connection asks first, so an old app cannot connect either.
+        const outdated = await updateGate(request, env);
+        if (outdated) return outdated;
         return json({ server_time: Math.floor(nowMs / 1000), user: userView(user, nowMs) });
       }
       if (path === "/api/v1/usage" && request.method === "POST") return usage(request, env, user, nowMs);

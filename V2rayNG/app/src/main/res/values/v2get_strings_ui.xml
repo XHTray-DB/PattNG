@@ -114,4 +114,13 @@
     <string name="v2get_change_server" translatable="false">تغییر سرور</string>
     <string name="v2get_settings_auto_title" translatable="false">انتخاب خودکار بهترین سرور</string>
     <string name="v2get_settings_auto_body" translatable="false">هنگام اتصال، اول tcping همه سرورها گرفته می‌شود، بعد از سرورهای سالم تأخیر واقعی گرفته می‌شود و به بهترین وصل می‌شود.</string>
+
+    <string name="v2get_update_badge" translatable="false">نسخه جدید آماده است</string>
+    <string name="v2get_update_headline" translatable="false">برنامه به‌روز شده است</string>
+    <string name="v2get_update_sub" translatable="false">برای ادامه، آخرین نسخه V2GET را دریافت و نصب کنید. حساب و اشتراک شما تغییری نمی‌کند.</string>
+    <string name="v2get_update_new_version" translatable="false">آخرین نسخه</string>
+    <string name="v2get_update_your_version" translatable="false">نسخه شما</string>
+    <string name="v2get_update_cta" translatable="false">دریافت نسخه جدید</string>
+    <string name="v2get_update_no_link" translatable="false">لینک دریافت در دسترس نیست؛ از پشتیبانی تلگرام بخواهید.</string>
+    <string name="v2get_update_install_hint" translatable="false">بعد از دانلود، فایل را باز و نصب کنید.</string>
 </resources>
