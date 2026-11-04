@@ -33,6 +33,7 @@ import com.v2ray.ang.service.NetworkMonitor
 import com.v2ray.ang.util.LogUtil
 import com.v2ray.ang.v2get.V2GetConfigSource
 import com.v2ray.ang.v2get.V2GetCountry
+import com.v2ray.ang.v2get.V2GetRecovery
 import com.v2ray.ang.v2get.V2GetTraffic
 import com.v2ray.ang.util.Utils
 import kotlinx.coroutines.CoroutineScope
@@ -54,6 +55,12 @@ import java.net.InetSocketAddress
 object CoreServiceManager {
 
     private const val AETHER_WARM_UP_MS = 30_000L
+
+    /** V2GET: how long after a line that tells of a lost tunnel the tunnel is tried, so a core that mends itself is left alone. */
+    private const val LOSS_SETTLE_MS = 2_000L
+
+    /** V2GET: the least time between two such checks. */
+    private const val LOSS_CHECK_COOLDOWN_MS = 15_000L
     private const val TRAFFIC_POLL_MS = 3_000L
     private const val LOCATION_ATTEMPTS = 8
 
@@ -84,6 +91,17 @@ object CoreServiceManager {
 
     @Volatile
     private var isReloading = false
+
+    // V2GET: the recovery of a dropped Aether tunnel: its scope, the check of a lost tunnel under way, and whether the
+    // core of this run has come up yet (a core that dies before that is a start that failed, not a drop).
+    private val recoveryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var lossCheckJob: Job? = null
+
+    @Volatile
+    private var aetherWasReady = false
+
+    @Volatile
+    private var lastLossCheckAt = 0L
 
     /** Tun descriptor the core was started with, null in the proxy only and root run modes. */
     private var currentVpnInterface: ParcelFileDescriptor? = null
@@ -369,6 +387,8 @@ object CoreServiceManager {
         if (aether != null) {
             // The tests were told to stop as this start began; the session's core waits for their cores to be gone.
             aetherExitHandled = false
+            aetherWasReady = false
+            if (!isReload) V2GetRecovery.reset()
             AetherCoreManager.start(service, aether, afterProbes = !isReload) { onAetherExit(guid) }
         }
 
@@ -420,6 +440,7 @@ object CoreServiceManager {
                 // The core's exit callback reports it as well; the service stops on whichever comes first.
                 AetherCoreManager.WarmUpOutcome.CORE_EXITED -> onAetherExit(guid)
                 AetherCoreManager.WarmUpOutcome.LISTENING -> {
+                    aetherWasReady = true
                     NotificationManager.setStatusLine(null)
                     val ready = if (isReload) AppConfig.MSG_STATE_RUNNING else AppConfig.MSG_STATE_START_SUCCESS
                     MessageHelper.sendMsg2UI(service, ready, "")
@@ -445,6 +466,13 @@ object CoreServiceManager {
         val service = control.getService()
         ContextCompat.getMainExecutor(service).execute {
             if (aetherExitHandled || AetherCoreManager.isRunning || !isRunning() || serviceControl?.get() !== control) return@execute
+            // V2GET: a core that had come up and then died is brought back at once, as long as it did not end for a
+            // reason a restart does not mend (an ECH key it lacks, Tor or Psiphon inside it ended) and the tries last.
+            if ((aetherWasReady || V2GetRecovery.recent(System.currentTimeMillis())) && !AetherCoreManager.endedForGood &&
+                recoverAether("the core exited")
+            ) {
+                return@execute
+            }
             aetherExitHandled = true
             LogUtil.e(
                 AppConfig.TAG,
@@ -455,6 +483,64 @@ object CoreServiceManager {
         }
     }
 
+
+    /**
+     * V2GET: brings the Aether tunnel back at once, the way a network handover does: Xray and the core are started
+     * again in place, and the service, the notification and the VPN interface stay up. The tries are limited, see
+     * [V2GetRecovery]. Returns false when none is made (no budget left, a reload under way already, no monitor).
+     */
+    private fun recoverAether(reason: String): Boolean {
+        val monitor = networkMonitor ?: return false
+        if (!claimReload(askedBy = monitor)) return false
+        val wait = V2GetRecovery.take(System.currentTimeMillis())
+        if (wait == null) {
+            isReloading = false
+            LogUtil.w(AppConfig.TAG, "StartCore-Manager: Aether recovery given up, the tries of the last minutes are spent ($reason)")
+            return false
+        }
+        LogUtil.w(AppConfig.TAG, "StartCore-Manager: Aether recovery in $wait ms: $reason")
+        recoveryScope.launch {
+            kotlinx.coroutines.delay(wait)
+            reloadCore(monitor)
+        }
+        return true
+    }
+
+    /**
+     * V2GET: a line of the Aether core's output. One that tells of a lost tunnel starts a check, a few seconds on,
+     * which tries the tunnel itself; only a tunnel that does not answer is brought back, so a line that was noise
+     * restarts nothing. Called on the core's output thread.
+     */
+    fun onCoreOutput(line: String) {
+        if (!V2GetRecovery.looksLikeLoss(line)) return
+        if (lossCheckJob?.isActive == true) return
+        if (System.currentTimeMillis() - lastLossCheckAt < LOSS_CHECK_COOLDOWN_MS) return
+        lossCheckJob = recoveryScope.launch {
+            kotlinx.coroutines.delay(LOSS_SETTLE_MS)
+            lastLossCheckAt = System.currentTimeMillis()
+            if (!isRunning() || isReloading || isAetherWarmingUp() || !AetherCoreManager.isRunning || currentAether == null) return@launch
+            if (tunnelAnswers()) {
+                LogUtil.i(AppConfig.TAG, "StartCore-Manager: the core told of a lost tunnel, the tunnel answers; nothing to do")
+                return@launch
+            }
+            recoverAether("the tunnel does not answer")
+        }
+    }
+
+    /** True when a request through the tunnel is answered, tried twice. */
+    private suspend fun tunnelAnswers(): Boolean {
+        repeat(2) { attempt ->
+            val delayMs = try {
+                coreController.measureDelay(SettingsManager.getDelayTestUrl())
+            } catch (e: Exception) {
+                -1L
+            }
+            if (delayMs > 0) return true
+            if (attempt == 0) kotlinx.coroutines.delay(1_500)
+        }
+        return false
+    }
+
     /**
      * Stops the V2Ray core service.
      * Unregisters broadcast receivers, stops notifications, and shuts down plugins.
@@ -462,6 +548,7 @@ object CoreServiceManager {
      */
     fun stopCoreLoop(): Boolean {
         connectionTestScope.coroutineContext.cancelChildren()
+        recoveryScope.coroutineContext.cancelChildren()
         trafficScope.coroutineContext.cancelChildren()
         val service = getService() ?: return false
 

@@ -301,6 +301,9 @@ object AetherCoreManager {
 
     val isRunning: Boolean get() = session != null
 
+    /** V2GET: true when the core that ended last ended for a reason a restart does not mend: no ECH key, or Tor or Psiphon inside it ended. */
+    val endedForGood: Boolean get() = stoppedForEchKey || stoppedChainEnd != null
+
     fun isSupported(context: Context): Boolean = binary(context).canExecute()
 
     /** Whether this build ships the Psiphon client; without it a profile with Psiphon cannot connect. */
@@ -1693,6 +1696,8 @@ object AetherCoreManager {
         try {
             process.inputStream.bufferedReader().forEachLine { line ->
                 relay(line, "aether")
+                // V2GET: a line that tells of a lost tunnel starts the check that may bring it back.
+                if (session === target) CoreServiceManager.onCoreOutput(line)
                 if (!target.wordSeen && isReadyWord(line)) target.wordSeen = true
                 if (isNoEchKeyWord(line)) target.noEchKey = true
                 // A core the app stopped, or one a new start replaced, is no longer the session's to end.
