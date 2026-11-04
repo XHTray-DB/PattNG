@@ -125,4 +125,20 @@
     <string name="v2get_update_install_hint" translatable="false">بعد از دانلود، فایل را باز و نصب کنید.</string>
     <string name="v2get_account_support_title" translatable="false">تمدید یا خرید اشتراک</string>
     <string name="v2get_support_tap" translatable="false">برای ارتباط با پشتیبانی تلگرام لمس کنید</string>
+
+    <string name="v2get_block_removed_badge" translatable="false">حساب پیدا نشد</string>
+    <string name="v2get_block_removed_headline" translatable="false">حساب شما فعال نیست</string>
+    <string name="v2get_block_removed_sub" translatable="false">این حساب روی سرور وجود ندارد یا حذف شده است. برای پیگیری با پشتیبانی تلگرام در ارتباط باشید.</string>
+    <string name="v2get_block_disabled_badge" translatable="false">حساب مسدود شد</string>
+    <string name="v2get_block_disabled_headline" translatable="false">حساب شما مسدود شده است</string>
+    <string name="v2get_block_disabled_sub" translatable="false">دسترسی این حساب مسدود شده است. برای پیگیری با پشتیبانی تلگرام در ارتباط باشید.</string>
+    <string name="v2get_block_expired_badge" translatable="false">اشتراک تمام شد</string>
+    <string name="v2get_block_expired_headline" translatable="false">اشتراک شما به پایان رسیده است</string>
+    <string name="v2get_block_expired_sub" translatable="false">برای تمدید اشتراک با پشتیبانی تلگرام در ارتباط باشید.</string>
+    <string name="v2get_block_exhausted_badge" translatable="false">حجم تمام شد</string>
+    <string name="v2get_block_exhausted_headline" translatable="false">حجم اشتراک شما تمام شده است</string>
+    <string name="v2get_block_exhausted_sub" translatable="false">برای افزایش حجم یا تمدید با پشتیبانی تلگرام در ارتباط باشید.</string>
+    <string name="v2get_block_support_cta" translatable="false">پیگیری در تلگرام</string>
+    <string name="v2get_block_recheck" translatable="false">بررسی دوباره وضعیت</string>
+    <string name="v2get_block_checking" translatable="false">در حال بررسی…</string>
 </resources>

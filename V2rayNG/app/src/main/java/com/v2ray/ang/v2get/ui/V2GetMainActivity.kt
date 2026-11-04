@@ -50,6 +50,7 @@ import com.v2ray.ang.ui.base.HelperBaseComponentActivity
 import com.v2ray.ang.ui.main.MainRepository
 import com.v2ray.ang.ui.perappproxy.PerAppProxyActivity
 import com.v2ray.ang.v2get.V2GetAuthManager
+import com.v2ray.ang.v2get.V2GetBlock
 import com.v2ray.ang.v2get.V2GetConfigSource
 import com.v2ray.ang.v2get.V2GetSettings
 
@@ -100,22 +101,35 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
             finish()
             return
         }
+        // An account the panel refused earlier (found by a report in the background, say) is shown at once.
+        V2GetBlock.pending()?.let {
+            V2GetBlock.show(this, it)
+            return
+        }
         vpnMode = SettingsManager.isVpnMode()
         readSettings()
         // The service can have gone away while the screen was not shown, and the account page can have changed the figures.
         viewModel.refresh()
         lifecycleScope.launch { viewModel.reloadServers() }
-        checkAppVersion()
+        checkAccount()
     }
 
-    /** Asks the panel whether this app is still allowed, so an old app is stopped when opened, not only when it connects. */
-    private fun checkAppVersion() {
+    /**
+     * Asks the panel about the account and the app version: usage still waiting goes out first, so the panel's
+     * figures are whole. An old app, or an account the panel refuses, is stopped here, when the app is opened and
+     * again once a connection is up, not only when it connects.
+     */
+    private fun checkAccount() {
         lifecycleScope.launch {
             val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 V2GetAuthManager.flushPending()
                 V2GetAuthManager.syncAccount()
             }
-            if (result is V2GetAuthManager.SyncResult.UpdateRequired) result.info.show(this@V2GetMainActivity)
+            when (result) {
+                is V2GetAuthManager.SyncResult.UpdateRequired -> result.info.show(this@V2GetMainActivity)
+                is V2GetAuthManager.SyncResult.Blocked -> V2GetBlock.show(this@V2GetMainActivity, result.reason)
+                else -> Unit
+            }
         }
     }
 
@@ -139,6 +153,7 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
                 }
                 is V2GetNotice.Failure -> errorText = notice.reason
                 is V2GetNotice.UpdateRequired -> notice.info.show(context)
+                is V2GetNotice.Blocked -> V2GetBlock.show(context, notice.reason)
             }
             viewModel.noticeShown()
         }
@@ -153,7 +168,13 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
             }
         }
         LaunchedEffect(state.connection) {
-            if (state.connection == V2GetConnection.Connected) failedServers.clear()
+            if (state.connection == V2GetConnection.Connected) {
+                failedServers.clear()
+                // The network works now: what could not be reported before is sent, and the account is checked again.
+                checkAccount()
+            }
+            // A refusal found in the background stopped the tunnel; the screen follows.
+            if (state.connection == V2GetConnection.Disconnected) V2GetBlock.pending()?.let { V2GetBlock.show(context, it) }
             if (state.connection == V2GetConnection.Disconnected && startAfterStop) {
                 startAfterStop = false
                 requestStart()

@@ -62,7 +62,7 @@ object V2GetTraffic {
         // report, and everything waiting is told to the panel.
         recoverLeftover()
         writeUnreported(0)
-        Thread({ V2GetAuthManager.flushPending() }, "v2get-usage").start()
+        Thread({ V2GetAuthManager.flushWithRetry() }, "v2get-usage").start()
     }
 
     /** Writes the bytes a connection counted but never reported (the process was killed) into a report of their own. */
@@ -146,6 +146,6 @@ object V2GetTraffic {
         // The report is written down first and only then taken off the live counters, so the usage shown never dips.
         V2GetAuthManager.queueUsage(id, number, u, d)
         writeUnreported(0)
-        Thread({ V2GetAuthManager.flushPending() }, "v2get-usage").start()
+        Thread({ V2GetAuthManager.flushWithRetry() }, "v2get-usage").start()
     }
 }

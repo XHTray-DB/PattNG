@@ -24,6 +24,8 @@ object V2GetAuthManager {
         data class Failure(val error: LoginError, val httpCode: Int = 0) : LoginResult()
         /** The panel knows a newer app and refuses this one. */
         data class UpdateRequired(val info: V2GetUpdateInfo) : LoginResult()
+        /** The panel knows the account and will not let it in (blocked). */
+        data class Blocked(val reason: V2GetBlockReason) : LoginResult()
     }
 
     /** The app's own version, told to the panel with every sign-in and account check. */
@@ -56,7 +58,8 @@ object V2GetAuthManager {
                 val code = conn.responseCode
                 val body = when (code) {
                     HttpURLConnection.HTTP_OK -> conn.inputStream.bufferedReader().use { it.readText() }
-                    HTTP_UPGRADE_REQUIRED -> conn.errorStream?.bufferedReader()?.use { it.readText() }
+                    HTTP_UPGRADE_REQUIRED, HttpURLConnection.HTTP_FORBIDDEN ->
+                        conn.errorStream?.bufferedReader()?.use { it.readText() }
                     else -> null
                 }
                 parseLogin(code, body, username)
@@ -76,10 +79,22 @@ object V2GetAuthManager {
         return "$base/api/v1/auth/login"
     }
 
+    /** The `error` field of a panel answer, or null. */
+    private fun errorOf(body: String?): String? = try {
+        JsonParser.parseString(body.orEmpty()).takeIf { it.isJsonObject }?.asJsonObject?.text("error")
+    } catch (_: Exception) {
+        null
+    }
+
     internal fun parseLogin(code: Int, body: String?, usernameInput: String): LoginResult {
         when (code) {
             HttpURLConnection.HTTP_OK -> Unit
-            HttpURLConnection.HTTP_UNAUTHORIZED, HttpURLConnection.HTTP_FORBIDDEN ->
+            HttpURLConnection.HTTP_FORBIDDEN -> {
+                val blocked = V2GetBlock.fromError(errorOf(body))
+                return if (blocked != null) LoginResult.Blocked(blocked)
+                else LoginResult.Failure(LoginError.BAD_CREDENTIALS, code)
+            }
+            HttpURLConnection.HTTP_UNAUTHORIZED ->
                 return LoginResult.Failure(LoginError.BAD_CREDENTIALS, code)
             HTTP_UPGRADE_REQUIRED -> return LoginResult.UpdateRequired(V2GetUpdateInfo.parse(body))
             else -> return LoginResult.Failure(LoginError.SERVER, code)
@@ -110,6 +125,8 @@ object V2GetAuthManager {
         data class Ok(val session: V2GetSession) : SyncResult()
         data object Unauthorized : SyncResult()
         data class UpdateRequired(val info: V2GetUpdateInfo) : SyncResult()
+        /** The account is deleted, blocked, ended or out of quota. */
+        data class Blocked(val reason: V2GetBlockReason) : SyncResult()
         data class Failed(val reason: String) : SyncResult()
     }
 
@@ -144,9 +161,26 @@ object V2GetAuthManager {
             when (val code = conn.responseCode) {
                 HttpURLConnection.HTTP_OK -> {
                     val root = JsonParser.parseString(conn.inputStream.bufferedReader().use { it.readText() }).asJsonObject
-                    SyncResult.Ok(storeFigures(session, root.obj("user")))
+                    val fresh = storeFigures(session, root.obj("user"))
+                    val blocked = V2GetBlock.fromStatus(root.obj("user")?.text("status"))
+                    if (blocked != null) {
+                        V2GetBlock.enforce(blocked)
+                        SyncResult.Blocked(blocked)
+                    } else {
+                        V2GetBlock.clear()
+                        SyncResult.Ok(fresh)
+                    }
                 }
-                HttpURLConnection.HTTP_UNAUTHORIZED, HttpURLConnection.HTTP_FORBIDDEN -> SyncResult.Unauthorized
+                HttpURLConnection.HTTP_FORBIDDEN -> {
+                    val blocked = V2GetBlock.fromError(errorOf(conn.errorStream?.bufferedReader()?.use { it.readText() }))
+                    if (blocked != null) {
+                        V2GetBlock.enforce(blocked)
+                        SyncResult.Blocked(blocked)
+                    } else {
+                        SyncResult.Unauthorized
+                    }
+                }
+                HttpURLConnection.HTTP_UNAUTHORIZED -> SyncResult.Unauthorized
                 HTTP_UPGRADE_REQUIRED ->
                     SyncResult.UpdateRequired(V2GetUpdateInfo.parse(conn.errorStream?.bufferedReader()?.use { it.readText() }))
                 else -> SyncResult.Failed("HTTP $code")
@@ -246,6 +280,19 @@ object V2GetAuthManager {
         }
     }
 
+    /**
+     * Sends what is waiting and, when the network refuses (a connection that is only coming up, a tunnel that just went
+     * down), tries again a few times, so that usage is not left unreported until the next time the app is opened.
+     * Blocking; call it off the main thread.
+     */
+    fun flushWithRetry(delaysMs: LongArray = longArrayOf(0L, 5_000L, 15_000L, 45_000L)) {
+        for (delay in delaysMs) {
+            if (delay > 0) Thread.sleep(delay)
+            if (V2GetSession.load() == null) return
+            if (flushPending()) return
+        }
+    }
+
     private fun sendReport(session: V2GetSession, item: org.json.JSONObject): Boolean {
         if (!apiBase().startsWith("https://", ignoreCase = true)) return false
         var conn: HttpURLConnection? = null
@@ -270,7 +317,14 @@ object V2GetAuthManager {
             if (code == HttpURLConnection.HTTP_OK) {
                 val root = JsonParser.parseString(conn.inputStream.bufferedReader().use { it.readText() }).asJsonObject
                 storeFigures(session, root)
+                // The panel took the report; if it also says the account can no longer be used, the tunnel stops now.
+                V2GetBlock.fromStatus(root.text("status"))?.let { V2GetBlock.enforce(it) }
                 true
+            } else if (code == HttpURLConnection.HTTP_FORBIDDEN) {
+                // The account is gone or blocked: the report can never be taken, so it is dropped, and the tunnel stops.
+                val blocked = V2GetBlock.fromError(errorOf(conn.errorStream?.bufferedReader()?.use { it.readText() }))
+                if (blocked != null) V2GetBlock.enforce(blocked)
+                blocked != null
             } else {
                 // A report the panel calls invalid never will be valid; keeping it would block the rest.
                 code == HttpURLConnection.HTTP_BAD_REQUEST
@@ -290,6 +344,7 @@ object V2GetAuthManager {
         V2GetTraffic.settleBeforeSignOut()
         flushPending()
         V2GetSession.clear()
+        V2GetBlock.clear()
         MmkvManager.encodeSettings(KEY_PENDING, "")
         V2GetConfigSource.clear()
     }

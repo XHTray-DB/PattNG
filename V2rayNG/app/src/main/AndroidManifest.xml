@@ -87,6 +87,11 @@
             android:theme="@style/AppThemeDayNight.NoActionBar"
             android:windowSoftInputMode="adjustResize" />
         <activity
+            android:name=".v2get.ui.V2GetBlockedActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:theme="@style/AppThemeDayNight.NoActionBar" />
+        <activity
             android:name=".v2get.ui.V2GetUpdateActivity"
             android:exported="false"
             android:launchMode="singleTask"

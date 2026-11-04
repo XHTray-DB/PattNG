@@ -80,7 +80,9 @@ function expiryMillis(expiresAt) {
 function accountState(user, nowMs) {
   const expired = nowMs > expiryMillis(user.expiresAt);
   const exhausted = user.quotaBytes > 0 && user.usedBytes >= user.quotaBytes;
-  return { expired, exhausted, active: !user.disabled && !expired && !exhausted };
+  // The reason an account cannot be used, for the app's "account ended / blocked" screen.
+  const status = user.disabled ? "disabled" : expired ? "expired" : exhausted ? "exhausted" : "active";
+  return { expired, exhausted, status, active: status === "active" };
 }
 
 function userView(user, nowMs) {
@@ -92,6 +94,7 @@ function userView(user, nowMs) {
     expiresAt: user.expiresAt || "",
     subscriptionType: user.plan || "",
     isActive: state.active,
+    status: state.status,
   };
 }
 
@@ -355,6 +358,17 @@ async function sessionUser(request, env, nowMs) {
   return rowToUser(row);
 }
 
+/** True when the token belongs to a live session whose user is gone: the account was deleted from the panel. */
+async function sessionWithoutUser(request, env, nowMs) {
+  const header = request.headers.get("Authorization") || "";
+  if (!header.startsWith("Bearer ")) return false;
+  const tokenId = toHex(await sha256(header.slice(7).trim()));
+  const row = await env.DB.prepare("SELECT 1 AS found FROM sessions WHERE token_id = ? AND created > ?")
+    .bind(tokenId, nowMs - SESSION_TTL * 1000)
+    .first();
+  return Boolean(row);
+}
+
 async function usage(request, env, user, nowMs) {
   const body = await readJson(request);
   const sessionId = String(body.session_id || "");
@@ -391,6 +405,7 @@ async function usage(request, env, user, nowMs) {
   return json({
     server_time: Math.floor(nowMs / 1000),
     is_active: state.active,
+    status: state.status,
     quotaBytes: user.quotaBytes,
     usedBytes: user.usedBytes,
     action: state.active ? "CONTINUE" : "TERMINATE_SESSION",
@@ -477,7 +492,11 @@ export default {
 
     if (path === "/api/v1/user/account" || path === "/api/v1/usage") {
       const user = await sessionUser(request, env, nowMs);
-      if (!user) return json({ error: "unauthorized" }, 401);
+      if (!user) {
+        // A session that still stands for a user that no longer exists is a removed account, not an expired session.
+        if (await sessionWithoutUser(request, env, nowMs)) return json({ error: "account_removed" }, 403);
+        return json({ error: "unauthorized" }, 401);
+      }
       if (path === "/api/v1/user/account" && request.method === "GET") {
         // The account check is what a connection asks first, so an old app cannot connect either.
         const outdated = await updateGate(request, env);

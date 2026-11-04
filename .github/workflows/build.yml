@@ -61,7 +61,7 @@ jobs:
       if: steps.cache-libhevtun-restore.outputs.cache-hit != 'true'
       run: |
         bash compile-hevtun.sh
-    
+
     - name: Save libhevtun
       if: steps.cache-libhevtun-restore.outputs.cache-hit != 'true'
       uses: actions/cache/save@v6
@@ -226,7 +226,7 @@ jobs:
         ./gradlew :app:testPlaystoreDebugUnitTest
         ./gradlew licensePlaystoreReleaseReport
         ./gradlew assemblePlaystoreRelease -PpattngVersion="${{ inputs.release_tag }}" -Pv2getApiUrl="${{ vars.V2GET_API_URL }}" -Pandroid.injected.signing.store.file=${{ steps.android_keystore.outputs.filePath }} -Pandroid.injected.signing.store.password="$KS_PASS" -Pandroid.injected.signing.key.alias="$KEY_ALIAS" -Pandroid.injected.signing.key.password="$KEY_PASS"
-    
+
     - name: Check the native libraries in the APKs
       run: |
         # Looked into as ZIP files: every ABI the Aether core is built for has to carry the core, its

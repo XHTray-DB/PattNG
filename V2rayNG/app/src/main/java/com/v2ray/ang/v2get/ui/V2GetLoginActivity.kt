@@ -76,6 +76,8 @@ data class V2GetLoginState(
     val signedIn: Boolean = false,
     /** Set when the panel refuses this app version: the update screen is shown. */
     val update: V2GetUpdateInfo? = null,
+    /** Set when the panel knows the account and has blocked it: the blocked screen is shown. */
+    val blocked: com.v2ray.ang.v2get.V2GetBlockReason? = null,
 )
 
 class V2GetLoginViewModel(private val apiUrl: String = BuildConfig.V2GET_API_URL) : ViewModel() {
@@ -98,11 +100,14 @@ class V2GetLoginViewModel(private val apiUrl: String = BuildConfig.V2GET_API_URL
 
                 is V2GetAuthManager.LoginResult.UpdateRequired -> V2GetLoginState(update = result.info)
 
+                is V2GetAuthManager.LoginResult.Blocked -> V2GetLoginState(blocked = result.reason)
+
                 is V2GetAuthManager.LoginResult.Success -> withContext(Dispatchers.IO) {
                     // The configuration first: an account that cannot get its core is not signed in. The usage
                     // figures of this sign-in are the ones the panel just sent with the session.
                     val detail = V2GetConfigSource.refreshProfile()
                     if (detail == null) {
+                        com.v2ray.ang.v2get.V2GetBlock.clear()
                         V2GetSession.save(result.session)
                         V2GetAuthManager.flushPending()
                         V2GetLoginState(signedIn = true)
@@ -128,6 +133,9 @@ class V2GetLoginActivity : BaseComponentActivity() {
                 startActivity(Intent(this@V2GetLoginActivity, V2GetMainActivity::class.java))
                 finish()
             }
+        }
+        LaunchedEffect(state.blocked) {
+            state.blocked?.let { com.v2ray.ang.v2get.V2GetBlock.show(this@V2GetLoginActivity, it) }
         }
         LaunchedEffect(state.update) {
             state.update?.show(this@V2GetLoginActivity)
