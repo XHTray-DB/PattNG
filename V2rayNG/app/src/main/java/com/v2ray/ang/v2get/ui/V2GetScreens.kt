@@ -1,6 +1,11 @@
 package com.v2ray.ang.v2get.ui
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -47,6 +52,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -257,9 +263,37 @@ private fun StatusCard(connection: V2GetConnection, phase: V2GetPhase = V2GetPha
     }
 }
 
+/** What the middle of the connect button shows. */
+private enum class PowerFace { Idle, Spinning, Tick, On }
+
+/** The power sign, turning round while a connection is being made. */
+@Composable
+private fun SpinningPower() {
+    val turn = rememberInfiniteTransition(label = "spin")
+    val angle by turn.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(1000, easing = LinearEasing)),
+        label = "spinAngle",
+    )
+    V2Icon(R.drawable.ic_v2g_power, V2G.Rose, 64.dp, Modifier.graphicsLayer { rotationZ = angle })
+}
+
+/** The green tick that shows when the connection came up; it grows into place. */
+@Composable
+private fun AppearingTick() {
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { shown = true }
+    val size by animateFloatAsState(
+        targetValue = if (shown) 1f else 0.3f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "tickSize",
+    )
+    V2Icon(R.drawable.ic_v2g_tick, V2G.Green, 64.dp, Modifier.graphicsLayer { scaleX = size; scaleY = size })
+}
+
 @Composable
 private fun PowerButton(connection: V2GetConnection, onToggle: () -> Unit) {
-    val connected = connection == V2GetConnection.Connected
     val busy = connection != V2GetConnection.Disconnected
     val pulse = rememberInfiniteTransition(label = "pulse")
     val scale by pulse.animateFloat(
@@ -277,6 +311,33 @@ private fun PowerButton(connection: V2GetConnection, onToggle: () -> Unit) {
     val actionLabel = stringResource(
         if (connection == V2GetConnection.Disconnected) R.string.v2get_connect_action else R.string.v2get_disconnect_action
     )
+    // Connecting: the power sign turns. Once the connection is up it stops, a tick shows for a moment, and the
+    // sign stays green for as long as the connection lasts.
+    var cameFromConnecting by remember { mutableStateOf(false) }
+    var showTick by remember { mutableStateOf(false) }
+    LaunchedEffect(connection) {
+        when (connection) {
+            V2GetConnection.Connecting -> cameFromConnecting = true
+            V2GetConnection.Connected -> {
+                if (cameFromConnecting) {
+                    showTick = true
+                    delay(1100)
+                    showTick = false
+                }
+                cameFromConnecting = false
+            }
+            V2GetConnection.Disconnected -> {
+                cameFromConnecting = false
+                showTick = false
+            }
+        }
+    }
+    val face = when {
+        connection == V2GetConnection.Disconnected -> PowerFace.Idle
+        connection == V2GetConnection.Connecting -> PowerFace.Spinning
+        showTick -> PowerFace.Tick
+        else -> PowerFace.On
+    }
     Box(contentAlignment = Alignment.Center, modifier = Modifier.size(290.dp)) {
         Box(
             Modifier
@@ -306,12 +367,16 @@ private fun PowerButton(connection: V2GetConnection, onToggle: () -> Unit) {
                 contentAlignment = Alignment.Center,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    V2Icon(
-                        R.drawable.ic_v2g_power,
-                        if (connected) V2G.Hot else V2G.Rose,
-                        64.dp,
-                        Modifier.clearAndSetSemantics {},
-                    )
+                    Crossfade(targetState = face, animationSpec = tween(250), label = "powerFace") { shown ->
+                        Box(Modifier.size(64.dp).clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
+                            when (shown) {
+                                PowerFace.Idle -> V2Icon(R.drawable.ic_v2g_power, V2G.Rose, 64.dp)
+                                PowerFace.Spinning -> SpinningPower()
+                                PowerFace.Tick -> AppearingTick()
+                                PowerFace.On -> V2Icon(R.drawable.ic_v2g_power, V2G.Green, 64.dp)
+                            }
+                        }
+                    }
                     Spacer(Modifier.height(6.dp))
                     Text(
                         stringResource(
