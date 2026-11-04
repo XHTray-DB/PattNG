@@ -1,16 +1,16 @@
 package com.v2ray.ang.v2get
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
 
 class V2GetRecoveryTest {
 
-    @Before
+    @BeforeEach
     fun clean() = V2GetRecovery.reset()
 
     @Test
@@ -30,14 +30,18 @@ class V2GetRecoveryTest {
 
     @Test
     fun theWaitGrowsAndTheBudgetEnds() {
-        val waits = (0 until V2GetRecovery.MAX_IN_WINDOW).map { V2GetRecovery.take(1_000L)!! }
+        val waits = (0 until V2GetRecovery.MAX_IN_WINDOW).map {
+            V2GetRecovery.take(1_000L)!!
+        }
         assertEquals(listOf(400L, 800L, 1_600L, 3_200L, 6_000L, 6_000L), waits)
         assertNull(V2GetRecovery.take(2_000L))
     }
 
     @Test
     fun theBudgetComesBackAfterTheWindow() {
-        repeat(V2GetRecovery.MAX_IN_WINDOW) { V2GetRecovery.take(0L) }
+        repeat(V2GetRecovery.MAX_IN_WINDOW) {
+            V2GetRecovery.take(0L)
+        }
         assertNull(V2GetRecovery.take(1L))
         assertNotNull(V2GetRecovery.take(V2GetRecovery.WINDOW_MS + 1))
     }
