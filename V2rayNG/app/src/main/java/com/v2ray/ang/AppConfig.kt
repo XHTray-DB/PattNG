@@ -152,7 +152,7 @@ object AppConfig {
     const val GITHUB_DOWNLOAD_URL = "$GITHUB_URL/%s/releases/latest/download"
     const val ANDROID_PACKAGE_NAME_LIST_URL = "$GITHUB_RAW_URL/2dust/androidpackagenamelist/master/proxy.txt"
     const val APP_URL = "https://t.me/axis_developer"
-    const val APP_API_URL = "https://api.github.com/repos/patterniha/PattNG/releases"
+    const val APP_API_URL = "https://api.github.com/repos/XHTray-DB/V2GET/releases"
     const val APP_ISSUES_URL = APP_URL
     const val AETHER_URL = "$GITHUB_URL/CluvexStudio/aether"
     const val APP_WIKI_MODE = APP_URL
