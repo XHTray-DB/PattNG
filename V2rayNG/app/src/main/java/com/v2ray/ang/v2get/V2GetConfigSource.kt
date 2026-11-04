@@ -47,12 +47,16 @@ object V2GetConfigSource {
 
     const val CONFIG_URL = "https://raw.githubusercontent.com/XHTray-DB/Pattconf/main/conf.json"
 
+    /** The second file, rebuilt by the repository's action from the subscriptions, with only the servers that answered a TCP test. */
+    const val CONFIG2_URL = "https://raw.githubusercontent.com/XHTray-DB/Pattconf/main/conf2.json"
+
     /** Every profile of V2GET starts with this, the one single-profile build of the app (see [V2GetAuthManager.PROFILE_GUID]) included. */
     const val GUID_PREFIX = "v2get-aether-"
 
     /** Written by the single-profile build: the one link of the last good download. Read as a fallback only. */
     private const val KEY_CACHE = "V2GET_AETHER_URI_CACHE"
     private const val KEY_CACHE_LIST = "V2GET_AETHER_URI_LIST_CACHE"
+    private const val KEY_CACHE_LIST2 = "V2GET_CONFIG2_URI_LIST_CACHE"
     private const val KEY_SERVERS = "V2GET_SERVERS"
     private const val KEY_SELECTED = "V2GET_SELECTED_GUID"
 
@@ -225,6 +229,7 @@ object V2GetConfigSource {
 
     /** The same file through GitHub's API, which answers with the file as it is now and not from the raw host's cache. */
     private const val API_URL = "https://api.github.com/repos/XHTray-DB/Pattconf/contents/conf.json?ref=main"
+    private const val API_URL2 = "https://api.github.com/repos/XHTray-DB/Pattconf/contents/conf2.json?ref=main"
 
     /**
      * Downloads the file. The raw host keeps an answer for minutes, and a filtered network may refuse it, so the
@@ -232,17 +237,17 @@ object V2GetConfigSource {
      * query that never repeats (the cache cannot answer it), the same through the running tunnel's local proxy when
      * one is up, then the GitHub API. Blocking.
      */
-    private fun download(): String {
+    private fun download(configUrl: String = CONFIG_URL, apiUrl: String = API_URL): String {
         val stamp = System.currentTimeMillis()
         val headers = """{"Cache-Control":"no-cache, no-store","Pragma":"no-cache"}"""
         val port = SettingsManager.getHttpPort()
         val username = SettingsManager.getSocksUsername()
         val password = SettingsManager.getSocksPassword()
         val sources = listOf(
-            UrlContentRequest("$CONFIG_URL?t=$stamp", timeout = 12_000, requestHeaders = headers),
-            UrlContentRequest("$CONFIG_URL?t=$stamp", timeout = 12_000, httpPort = port, proxyUsername = username, proxyPassword = password, requestHeaders = headers),
-            UrlContentRequest(API_URL, timeout = 12_000, requestHeaders = """{"Accept":"application/vnd.github.raw+json","Cache-Control":"no-cache"}"""),
-            UrlContentRequest(API_URL, timeout = 12_000, httpPort = port, proxyUsername = username, proxyPassword = password, requestHeaders = """{"Accept":"application/vnd.github.raw+json","Cache-Control":"no-cache"}"""),
+            UrlContentRequest("$configUrl?t=$stamp", timeout = 12_000, requestHeaders = headers),
+            UrlContentRequest("$configUrl?t=$stamp", timeout = 12_000, httpPort = port, proxyUsername = username, proxyPassword = password, requestHeaders = headers),
+            UrlContentRequest(apiUrl, timeout = 12_000, requestHeaders = """{"Accept":"application/vnd.github.raw+json","Cache-Control":"no-cache"}"""),
+            UrlContentRequest(apiUrl, timeout = 12_000, httpPort = port, proxyUsername = username, proxyPassword = password, requestHeaders = """{"Accept":"application/vnd.github.raw+json","Cache-Control":"no-cache"}"""),
         )
         var failure = "no source answered"
         sources.forEachIndexed { index, request ->
@@ -265,7 +270,22 @@ object V2GetConfigSource {
     }
 
     /**
-     * Reads the file, builds one Aether profile per link and keeps the chosen server selected (the first one
+     * The links of `conf2.json`, the file the repository's action builds. It is a help and never a requirement: when
+     * it cannot be downloaded the links of its last good download are used, and when there are none, there are none.
+     */
+    private fun secondaryUris(): List<String> {
+        return try {
+            extractLinks(download(CONFIG2_URL, API_URL2)).also {
+                MmkvManager.encodeSettings(KEY_CACHE_LIST2, it.joinToString("\n"))
+            }
+        } catch (e: Exception) {
+            LogUtil.w(AppConfig.TAG, "V2GetConfigSource: conf2.json not downloaded: ${e.message.orEmpty()}")
+            extractLinks(MmkvManager.decodeSettingsString(KEY_CACHE_LIST2).orEmpty())
+        }
+    }
+
+    /**
+     * Reads the files (`conf.json`, then `conf2.json`), builds one profile per link and keeps the chosen server selected (the first one
      * when none is chosen yet or it left the file). A link that does not parse is skipped; the call fails only
      * when none does. When the download fails, the links of the last good download are used. Blocking; call it
      * off the main thread.
@@ -286,6 +306,9 @@ object V2GetConfigSource {
             uris = cachedUris()
             if (uris.isEmpty()) return "دریافت کانفیگ از گیت‌هاب ناموفق بود (و نسخهٔ ذخیره‌شده‌ای وجود ندارد): $downloadError"
         }
+        val primaryUris = uris
+        // The links of conf.json come first; those of conf2.json follow, each server once.
+        uris = (primaryUris + secondaryUris()).distinct()
 
         val built = LinkedHashMap<String, Pair<V2GetServer, ProfileItem>>()
         var parseError: String? = null
@@ -316,7 +339,7 @@ object V2GetConfigSource {
             val selected = if (chosen != null && chosen in built) chosen else built.keys.first()
             MmkvManager.encodeSettings(KEY_SELECTED, selected)
             MmkvManager.setSelectServer(selected)
-            if (downloadError == null) MmkvManager.encodeSettings(KEY_CACHE_LIST, uris.joinToString("\n"))
+            if (downloadError == null) MmkvManager.encodeSettings(KEY_CACHE_LIST, primaryUris.joinToString("\n"))
             null
         } catch (e: Exception) {
             LogUtil.e(AppConfig.TAG, "V2GetConfigSource: storing the profiles failed", e)
@@ -330,6 +353,7 @@ object V2GetConfigSource {
         MmkvManager.encodeSettings(KEY_SERVERS, "")
         MmkvManager.encodeSettings(KEY_SELECTED, "")
         MmkvManager.encodeSettings(KEY_CACHE_LIST, "")
+        MmkvManager.encodeSettings(KEY_CACHE_LIST2, "")
         MmkvManager.encodeSettings(KEY_CACHE, "")
         MmkvManager.encodeSettings(KEY_COUNTRIES, "")
     }
