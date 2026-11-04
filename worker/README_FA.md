@@ -23,7 +23,7 @@ curl -X POST https://WORKER_URL/api/v1/admin/user \
 ```bash
 curl -X POST https://WORKER_URL/api/v1/admin/release \
   -H "X-Admin-Secret: ADMIN_SECRET_TO" -H "Content-Type: application/json" \
-  -d '{"version":"2.3.14","url":"https://github.com/USER/REPO/releases/download/2.3.14/PattNG_2.3.14_arm64-v8a.apk","notes":"رفع باگ اتصال"}'
+  -d '{"version":"2.3.14","url":"https://github.com/USER/REPO/releases/download/2.3.14/V2GET_2.3.14_arm64-v8a.apk","notes":"رفع باگ اتصال"}'
 ```
 - `version` باید همان عددی باشد که به بیلد می‌دهی (`release_tag`، مثل `2.3.14`)، چون اپ `versionName` خودش را می‌فرستد.
 - `"force":false` فقط ثبت می‌کند و کسی را متوقف نمی‌کند (برای وقتی هنوز فایل آپلود نشده).

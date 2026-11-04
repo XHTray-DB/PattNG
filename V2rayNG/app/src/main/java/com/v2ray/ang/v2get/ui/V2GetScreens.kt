@@ -629,6 +629,12 @@ fun AccountTab(session: V2GetSession?, onCopyId: (String) -> Unit, onLogout: () 
                 }
             }
         }
+        Spacer(Modifier.height(14.dp))
+        SupportCard(
+            title = stringResource(R.string.v2get_account_support_title),
+            body = stringResource(R.string.v2get_support_tap),
+            modifier = Modifier.fillMaxWidth(),
+        )
         Spacer(Modifier.height(18.dp))
         OutlinedButton(
             onClick = onLogout,

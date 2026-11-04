@@ -101,7 +101,7 @@ android {
                     // PattNG: GitHub lists a release's files by name, and a version starts with a digit, which sorts
                     // before "fdroid": the F-Droid files come after the others. The app's update check finds its file
                     // by "fdroid" and the ABI anywhere in the name, see UpdateCheckerManager.getDownloadUrl.
-                    output.outputFileName = "PattNG_fdroid_${variant.versionName}_${abi}.apk"
+                    output.outputFileName = "V2GET_fdroid_${variant.versionName}_${abi}.apk"
                     if (versionCodes.containsKey(abi)) {
                         output.versionCodeOverride =
                             (100 * variant.versionCode + versionCodes[abi]!!).plus(5000000)
@@ -121,7 +121,7 @@ android {
                     else
                         "universal"
 
-                    output.outputFileName = "PattNG_${variant.versionName}_${abi}.apk"
+                    output.outputFileName = "V2GET_${variant.versionName}_${abi}.apk"
                     if (versionCodes.containsKey(abi)) {
                         output.versionCodeOverride =
                             (1000000 * versionCodes[abi]!!).plus(variant.versionCode)

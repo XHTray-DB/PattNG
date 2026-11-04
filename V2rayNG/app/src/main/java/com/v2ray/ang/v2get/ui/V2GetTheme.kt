@@ -270,3 +270,34 @@ fun V2Logo(size: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier) {
         modifier = modifier.size(size),
     )
 }
+
+
+private const val SUPPORT_URL = "https://t.me/axis_developer"
+
+/** Opens the support chat on Telegram (the Telegram app when installed, the browser otherwise). */
+fun openSupport(context: android.content.Context) {
+    try {
+        context.startActivity(
+            android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(SUPPORT_URL))
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    } catch (_: android.content.ActivityNotFoundException) {
+    }
+}
+
+/** The card that sends the person to Telegram support: buying, renewing, any trouble. */
+@Composable
+fun SupportCard(title: String, body: String, modifier: Modifier = Modifier) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    GlassCard(modifier.clickable(role = androidx.compose.ui.semantics.Role.Button) { openSupport(context) }, shape = RoundedCornerShape(20.dp)) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconBox(R.drawable.ic_v2g_support, size = 40.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = V2G.Ink)
+                Text(body, fontSize = 12.sp, color = V2G.Muted)
+            }
+            Text("@axis_developer", fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = V2G.Mono, color = V2G.Magenta)
+        }
+    }
+}

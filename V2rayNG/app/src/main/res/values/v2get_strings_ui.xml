@@ -96,7 +96,7 @@
     <string name="v2get_login_secure_title" translatable="false">ورود امن</string>
     <string name="v2get_login_secure_body" translatable="false">رمز عبور فقط روی اتصال HTTPS به سرور ارسال می‌شود.</string>
     <string name="v2get_login_cta" translatable="false">ورود و اتصال به شبکه V2GET</string>
-    <string name="v2get_login_support" translatable="false">دریافت اکانت یا پشتیبانی از طریق تلگرام</string>
+    <string name="v2get_login_support" translatable="false">پشتیبانی و خرید اکانت در تلگرام</string>
     <string name="v2get_login_footer" translatable="false">V2GET • طراحی‌شده برای پایداری حداکثری و دور زدن فیلترینگ</string>
     <string name="v2get_error_title" translatable="false">علت خطا</string>
     <string name="v2get_error_ok" translatable="false">باشه</string>
@@ -123,4 +123,6 @@
     <string name="v2get_update_cta" translatable="false">دریافت نسخه جدید</string>
     <string name="v2get_update_no_link" translatable="false">لینک دریافت در دسترس نیست؛ از پشتیبانی تلگرام بخواهید.</string>
     <string name="v2get_update_install_hint" translatable="false">بعد از دانلود، فایل را باز و نصب کنید.</string>
+    <string name="v2get_account_support_title" translatable="false">تمدید یا خرید اشتراک</string>
+    <string name="v2get_support_tap" translatable="false">برای ارتباط با پشتیبانی تلگرام لمس کنید</string>
 </resources>

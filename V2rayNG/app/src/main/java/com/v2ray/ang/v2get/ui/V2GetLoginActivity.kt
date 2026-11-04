@@ -293,17 +293,11 @@ class V2GetLoginActivity : BaseComponentActivity() {
                 }
             }
             Spacer(Modifier.height(14.dp))
-            GlassCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
-                Row(
-                    Modifier.fillMaxWidth().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                ) {
-                    V2Icon(R.drawable.ic_v2g_support, V2G.Rose, 22.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.v2get_login_support), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = V2G.Ink)
-                }
-            }
+            SupportCard(
+                title = stringResource(R.string.v2get_login_support),
+                body = stringResource(R.string.v2get_support_tap),
+                modifier = Modifier.fillMaxWidth(),
+            )
             Spacer(Modifier.height(18.dp))
             Text(
                 stringResource(R.string.v2get_login_footer),
