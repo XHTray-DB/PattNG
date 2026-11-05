@@ -27,6 +27,15 @@ object V2GetSettings {
         MmkvManager.encodeSettings(KEY_AUTO_BEST, on)
     }
 
+    /** The server of the last connection that came up: the next start tries it first, so a good server costs no search. */
+    const val KEY_LAST_GOOD = "V2GET_LAST_GOOD_SERVER"
+
+    fun lastGood(): String? = MmkvManager.decodeSettingsString(KEY_LAST_GOOD)?.takeIf { it.isNotBlank() }
+
+    fun setLastGood(guid: String) {
+        MmkvManager.encodeSettings(KEY_LAST_GOOD, guid)
+    }
+
     /** Split tunneling is the per-app proxy of the app: only the chosen apps (or all but them) use the tunnel. */
     fun perAppProxy(): Boolean = MmkvManager.decodeSettingsBool(AppConfig.PREF_PER_APP_PROXY, false)
 

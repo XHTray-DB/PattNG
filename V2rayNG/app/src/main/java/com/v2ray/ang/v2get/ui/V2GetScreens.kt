@@ -361,19 +361,30 @@ private fun AppearingTick() {
 @Composable
 private fun PowerButton(connection: V2GetConnection, onToggle: () -> Unit) {
     val busy = connection != V2GetConnection.Disconnected
-    val pulse = rememberInfiniteTransition(label = "pulse")
-    val scale by pulse.animateFloat(
-        initialValue = 1f,
-        targetValue = if (busy) 1.06f else 1.015f,
-        animationSpec = infiniteRepeatable(tween(1300, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "pulseScale",
-    )
-    val halo by pulse.animateFloat(
-        initialValue = 0.25f,
-        targetValue = if (busy) 0.6f else 0.35f,
-        animationSpec = infiniteRepeatable(tween(1500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "haloAlpha",
-    )
+    // The pulse runs only while a connection is being made or is up: an idle screen on an old phone draws nothing
+    // every frame, so it stays smooth and costs no battery.
+    val scale: Float
+    val halo: Float
+    if (busy) {
+        val pulse = rememberInfiniteTransition(label = "pulse")
+        val animatedScale by pulse.animateFloat(
+            initialValue = 1f,
+            targetValue = 1.06f,
+            animationSpec = infiniteRepeatable(tween(1300, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "pulseScale",
+        )
+        val animatedHalo by pulse.animateFloat(
+            initialValue = 0.25f,
+            targetValue = 0.6f,
+            animationSpec = infiniteRepeatable(tween(1500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "haloAlpha",
+        )
+        scale = animatedScale
+        halo = animatedHalo
+    } else {
+        scale = 1f
+        halo = 0.3f
+    }
     val actionLabel = stringResource(
         if (connection == V2GetConnection.Disconnected) R.string.v2get_connect_action else R.string.v2get_disconnect_action
     )

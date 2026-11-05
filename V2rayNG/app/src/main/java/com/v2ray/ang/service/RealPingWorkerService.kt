@@ -42,6 +42,13 @@ internal object RealPingExecutionLimiter {
     }
 }
 
+private fun isLowMemory(context: Context): Boolean = try {
+    val manager = context.getSystemService(android.app.ActivityManager::class.java)
+    manager == null || manager.isLowRamDevice || manager.memoryClass < 192
+} catch (_: Exception) {
+    true
+}
+
 /**
  * Worker that runs a batch of real-ping tests independently.
  * Each batch owns its own CoroutineScope/dispatcher and can be cancelled separately.
@@ -53,7 +60,10 @@ class RealPingWorkerService(
     private val onEvent: (RealPingEvent) -> Unit = {}
 ) {
     private val job = SupervisorJob()
-    private val concurrency = SettingsManager.getRealPingConcurrency()
+    // A low-memory phone runs few measurements at once (each real one starts a core); the TCP ones are light.
+    private val concurrency = SettingsManager.getRealPingConcurrency().let {
+        if (isLowMemory(context)) it.coerceAtMost(if (onlyTcp) 8 else 2) else it
+    }
     private val dispatcher = Executors.newFixedThreadPool(if (onlyTcp) concurrency * 2 else concurrency).asCoroutineDispatcher()
     private val scope = CoroutineScope(job + dispatcher + CoroutineName("RealPingBatchWorker"))
 

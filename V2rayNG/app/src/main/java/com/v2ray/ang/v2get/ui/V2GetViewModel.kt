@@ -113,6 +113,7 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
                     MainServiceEvent.StateRunning, MainServiceEvent.StateStartSuccess -> {
                         // The core may have moved to another server by itself (see CoreServiceManager): the screens follow.
                         _uiState.update { it.copy(selectedGuid = V2GetConfigSource.selectedGuid()) }
+                        _uiState.value.selectedGuid?.let { V2GetSettings.setLastGood(it) }
                         detectCountry()
                         startLivePolling()
                         startBackgroundTests()
@@ -317,6 +318,18 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
             dataSource.clearAllTestDelayResults(all)
             _uiState.update { it.copy(phase = V2GetPhase.Tcping) }
 
+            // Fast path: the server of the last connection that came up is tried alone, with one quick TCP test. When
+            // it answers, the start goes on at once (about a second) and the other servers are tested later, in the
+            // background, only if this one fails. This is what makes a normal start instant.
+            V2GetSettings.lastGood()?.takeIf { it in all }?.let { last ->
+                if (runServerTest(listOf(last), onlyTcp = true, budgetMs = LAST_GOOD_BUDGET_MS) == false) return
+                if ((readDelays(listOf(last))[last] ?: -1L) > 0L) {
+                    selectServer(last)
+                    alternatives = all.filter { it != last }
+                    return
+                }
+            }
+
             // Stage one: the Aether servers, TCP only. Their answer is the proof that they work.
             val aether = servers.filter { !needsRealTest(it) }
             val tcp = HashMap<String, Long>()
@@ -337,6 +350,12 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
             if (otherGuids.isNotEmpty()) {
                 if (runServerTest(otherGuids, onlyTcp = true, budgetMs = TCP_BUDGET_MS) == false) return
                 tcp.putAll(readDelays(otherGuids))
+            }
+            // A weak phone cannot carry several test cores: it takes the fastest TCP answer without the real test.
+            if (isWeakDevice()) {
+                bestServer(servers, tcp, emptyMap())?.let { selectServer(it) }
+                alternatives = all
+                return
             }
             val order = realTestOrder(others, tcp).take(REAL_TEST_MAX)
             _uiState.update { it.copy(phase = V2GetPhase.RealPing) }
@@ -454,10 +473,13 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
 
     companion object {
         private const val COUNTRY_ATTEMPTS = 4
-        private const val TCP_BUDGET_MS = 5_000L
+        private const val TCP_BUDGET_MS = 3_500L
 
         /** The Aether servers are tested first and by TCP alone; they either answer at once or not at all. */
-        private const val AETHER_TCP_BUDGET_MS = 4_000L
+        private const val AETHER_TCP_BUDGET_MS = 2_500L
+
+        /** The one TCP test of the last good server. */
+        private const val LAST_GOOD_BUDGET_MS = 1_500L
 
         /** The real tests of the start: at most this many servers, this many at a time, so the start ends in seconds. */
         private const val REAL_TEST_MAX = 6
@@ -471,7 +493,7 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
         private const val WEAK_DEVICE_MEMORY_CLASS_MB = 192
 
         /** One batch of real tests; a batch of dead servers costs no more than this. */
-        private const val REAL_BUDGET_MS = 8_000L
+        private const val REAL_BUDGET_MS = 6_000L
 
         /** How long a "not running" answer is ignored after a start began: the daemon is still starting then. */
         internal const val START_GRACE_MS = 20_000L
