@@ -1,9 +1,9 @@
 package com.v2ray.ang.v2get
 
 import java.time.LocalDate
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Test
 
 class V2GetNoticesTest {
     private val today = LocalDate.of(2026, 11, 5)
