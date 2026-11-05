@@ -662,6 +662,9 @@ object SettingsManager {
         MmkvManager.encodeSettings(AppConfig.PREF_IP_API_URL, AppConfig.IP_API_URL)
         MmkvManager.encodeSettings(AppConfig.PREF_REAL_PING_CONCURRENCY, "16")
         MmkvManager.encodeSettings(AppConfig.PREF_MODE, VPN)
+        MmkvManager.encodeSettings(AppConfig.PREF_DYNAMIC_SOCKS_PORT, false)
+        MmkvManager.encodeSettings(AppConfig.PREF_IS_BOOTED, false)
+        MmkvManager.encodeSettings(AppConfig.PREF_VPN_INTERFACE_ADDRESS_CONFIG_INDEX, "0")
         MmkvManager.encodeSettings(AppConfig.PREF_V2GET_PROFILE_APPLIED, true)
     }
 
