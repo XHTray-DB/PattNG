@@ -8,6 +8,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -332,19 +334,6 @@ private fun NoticeCard(icon: Int, text: String, action: String?, onAction: () ->
 /** What the middle of the connect button shows. */
 private enum class PowerFace { Idle, Spinning, Tick, On }
 
-/** The power sign, turning round while a connection is being made. */
-@Composable
-private fun SpinningPower() {
-    val turn = rememberInfiniteTransition(label = "spin")
-    val angle by turn.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(1000, easing = LinearEasing)),
-        label = "spinAngle",
-    )
-    V2Icon(R.drawable.ic_v2g_power, V2G.Rose, 64.dp, Modifier.graphicsLayer { rotationZ = angle })
-}
-
 /** The green tick that shows when the connection came up; it grows into place. */
 @Composable
 private fun AppearingTick() {
@@ -360,31 +349,55 @@ private fun AppearingTick() {
 
 @Composable
 private fun PowerButton(connection: V2GetConnection, onToggle: () -> Unit) {
-    val busy = connection != V2GetConnection.Disconnected
-    // The pulse runs only while a connection is being made or is up: an idle screen on an old phone draws nothing
-    // every frame, so it stays smooth and costs no battery.
+    // The animation runs only while a connection is being made: an idle or a connected screen draws nothing every
+    // frame, so it stays smooth on an old phone and costs no battery. The bubble grows and shrinks while connecting,
+    // then turns green and keeps one size once the connection is up.
+    val connecting = connection == V2GetConnection.Connecting
     val scale: Float
     val halo: Float
-    if (busy) {
+    val bubbleScale: Float
+    if (connecting) {
         val pulse = rememberInfiniteTransition(label = "pulse")
         val animatedScale by pulse.animateFloat(
             initialValue = 1f,
-            targetValue = 1.06f,
-            animationSpec = infiniteRepeatable(tween(1300, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            targetValue = 1.05f,
+            animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
             label = "pulseScale",
         )
         val animatedHalo by pulse.animateFloat(
             initialValue = 0.25f,
             targetValue = 0.6f,
-            animationSpec = infiniteRepeatable(tween(1500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
             label = "haloAlpha",
+        )
+        val animatedBubble by pulse.animateFloat(
+            initialValue = 0.86f,
+            targetValue = 1.06f,
+            animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "bubbleScale",
         )
         scale = animatedScale
         halo = animatedHalo
+        bubbleScale = animatedBubble
     } else {
         scale = 1f
-        halo = 0.3f
+        halo = if (connection == V2GetConnection.Connected) 0.45f else 0.3f
+        bubbleScale = 1f
     }
+    val bubbleColor by animateColorAsState(
+        targetValue = when (connection) {
+            V2GetConnection.Connected -> V2G.Green.copy(alpha = 0.22f)
+            V2GetConnection.Connecting -> V2G.Rose.copy(alpha = 0.16f)
+            V2GetConnection.Disconnected -> V2G.Surface.copy(alpha = 0.8f)
+        },
+        animationSpec = tween(400),
+        label = "bubbleColor",
+    )
+    val bubbleBorder by animateColorAsState(
+        targetValue = if (connection == V2GetConnection.Connected) V2G.Green else V2G.Border,
+        animationSpec = tween(400),
+        label = "bubbleBorder",
+    )
     val actionLabel = stringResource(
         if (connection == V2GetConnection.Disconnected) R.string.v2get_connect_action else R.string.v2get_disconnect_action
     )
@@ -435,20 +448,22 @@ private fun PowerButton(connection: V2GetConnection, onToggle: () -> Unit) {
                 .clickable(onClickLabel = actionLabel, role = Role.Button, onClick = onToggle),
             contentAlignment = Alignment.Center,
         ) {
-            Box(
-                Modifier
-                    .size(184.dp)
-                    .clip(CircleShape)
-                    .background(V2G.Surface.copy(alpha = 0.8f))
-                    .border(1.dp, V2G.Border, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
+            Box(Modifier.size(184.dp), contentAlignment = Alignment.Center) {
+                // The bubble: only it changes size and colour; the icon and the text on it stay still.
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { scaleX = bubbleScale; scaleY = bubbleScale }
+                        .clip(CircleShape)
+                        .background(bubbleColor)
+                        .border(1.dp, bubbleBorder, CircleShape)
+                )
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Crossfade(targetState = face, animationSpec = tween(250), label = "powerFace") { shown ->
                         Box(Modifier.size(64.dp).clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
                             when (shown) {
                                 PowerFace.Idle -> V2Icon(R.drawable.ic_v2g_power, V2G.Rose, 64.dp)
-                                PowerFace.Spinning -> SpinningPower()
+                                PowerFace.Spinning -> V2Icon(R.drawable.ic_v2g_power, V2G.Rose, 64.dp)
                                 PowerFace.Tick -> AppearingTick()
                                 PowerFace.On -> V2Icon(R.drawable.ic_v2g_power, V2G.Green, 64.dp)
                             }

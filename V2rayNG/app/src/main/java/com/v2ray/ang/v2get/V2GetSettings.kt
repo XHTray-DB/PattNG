@@ -39,20 +39,25 @@ object V2GetSettings {
     /** Split tunneling is the per-app proxy of the app: only the chosen apps (or all but them) use the tunnel. */
     fun perAppProxy(): Boolean = MmkvManager.decodeSettingsBool(AppConfig.PREF_PER_APP_PROXY, false)
 
+    /** The DNS protection switch of the settings tab: on until switched off. */
+    const val KEY_DNS_PROTECTED = "V2GET_DNS_PROTECTED"
+
     /**
-     * DNS leak protection holds when the remote DNS the core asks through the tunnel is an encrypted (https) address.
-     * The local DNS and the fake DNS stay off: this switch never turns them on, and the app's defaults keep them off.
+     * DNS leak protection: the remote DNS the core asks through the tunnel is an encrypted (https) address. It is a
+     * switch of its own, so it can be turned off and on; the local DNS and the fake DNS stay off either way.
      */
-    fun dnsProtected(): Boolean = isEncryptedDns(MmkvManager.decodeSettingsString(AppConfig.PREF_REMOTE_DNS))
+    fun dnsProtected(): Boolean = MmkvManager.decodeSettingsBool(KEY_DNS_PROTECTED, true)
 
     /** Blank is the app's default, an encrypted address. */
     internal fun isEncryptedDns(remote: String?): Boolean =
         remote.isNullOrBlank() || remote.split(",").all { it.trim().startsWith("https") }
 
-    /** Takes effect at the next connection. Turning it on sets an encrypted remote DNS; turning it off changes nothing else. */
+    /**
+     * Takes effect at the next connection. On sets the encrypted remote DNS; off sets a plain one (Google's address,
+     * through the tunnel), which the core answers without DNS over HTTPS.
+     */
     fun setDnsProtected(on: Boolean) {
-        if (on && !isEncryptedDns(MmkvManager.decodeSettingsString(AppConfig.PREF_REMOTE_DNS))) {
-            MmkvManager.encodeSettings(AppConfig.PREF_REMOTE_DNS, AppConfig.DNS_PROXY)
-        }
+        MmkvManager.encodeSettings(KEY_DNS_PROTECTED, on)
+        MmkvManager.encodeSettings(AppConfig.PREF_REMOTE_DNS, if (on) AppConfig.DNS_PROXY else AppConfig.DNS_VPN)
     }
 }

@@ -66,6 +66,14 @@ object CoreServiceManager {
 
     /** V2GET: how many times one run moves to another server by itself. */
     private const val MAX_SERVER_SWITCHES = 3
+
+    /** V2GET: the dead-tunnel watch. The first look comes after the tunnel settled; a good tunnel is looked at rarely, a failing one often. */
+    private const val HEALTH_FIRST_MS = 8_000L
+    private const val HEALTH_OK_EVERY_MS = 30_000L
+    private const val HEALTH_FAIL_EVERY_MS = 3_000L
+
+    /** V2GET: how many looks in a row must fail (each is two tries) before the run leaves the server. */
+    private const val HEALTH_FAILS_TO_SWITCH = 2
     private const val TRAFFIC_POLL_MS = 3_000L
     private const val LOCATION_ATTEMPTS = 8
 
@@ -101,6 +109,7 @@ object CoreServiceManager {
     // core of this run has come up yet (a core that dies before that is a start that failed, not a drop).
     private val recoveryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var lossCheckJob: Job? = null
+    private var healthJob: Job? = null
 
     @Volatile
     private var aetherWasReady = false
@@ -206,6 +215,51 @@ object CoreServiceManager {
         startTrafficPoll()
         startLocationProbe()
         startNetworkMonitor(service)
+        startHealthWatch()
+    }
+
+    /**
+     * V2GET: a server whose port answers a TCP connection can still carry nothing (a Trojan or VLESS server with a
+     * dead backend, say): the app shows "connected" with 0 KB/s. A request through the tunnel is tried a few seconds
+     * after the start and then now and then; when it fails several looks in a row, the run moves to the next server
+     * by itself (Zero-Drop, see [pickAnotherServer]) and the core is reloaded in place, so the person never has to
+     * press the button again. Runs in the daemon, so it works with no screen open, and ends with the connection.
+     */
+    private fun startHealthWatch() {
+        healthJob?.cancel()
+        healthJob = recoveryScope.launch {
+            kotlinx.coroutines.delay(HEALTH_FIRST_MS)
+            var failures = 0
+            while (isActive && isRunning()) {
+                // A reload or an Aether warm-up is under way: nothing is judged until it is over.
+                if (isReloading || isAetherWarmingUp()) {
+                    failures = 0
+                    kotlinx.coroutines.delay(HEALTH_FAIL_EVERY_MS)
+                    continue
+                }
+                failures = if (tunnelAnswers()) 0 else failures + 1
+                if (failures >= HEALTH_FAILS_TO_SWITCH) {
+                    failures = 0
+                    if (leaveDeadServer()) kotlinx.coroutines.delay(HEALTH_FIRST_MS)
+                }
+                kotlinx.coroutines.delay(if (failures > 0) HEALTH_FAIL_EVERY_MS else HEALTH_OK_EVERY_MS)
+            }
+        }
+    }
+
+    /** Moves the run to another server and reloads the core on it. False when no other server can be taken. */
+    private fun leaveDeadServer(): Boolean {
+        val monitor = networkMonitor ?: return false
+        if (!claimReload(askedBy = monitor)) return false
+        val next = pickAnotherServer()
+        if (next == null) {
+            isReloading = false
+            LogUtil.w(AppConfig.TAG, "StartCore-Manager: the tunnel carries nothing and no other server can be taken, guid=${MmkvManager.getSelectServer()}")
+            return false
+        }
+        LogUtil.w(AppConfig.TAG, "StartCore-Manager: the tunnel carries nothing, moving to another server, guid=$next")
+        recoveryScope.launch { reloadCore(monitor) }
+        return true
     }
 
     /**
