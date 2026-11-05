@@ -35,3 +35,12 @@ CREATE TABLE IF NOT EXISTS app_settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS server_votes (
+    server_key TEXT NOT NULL,
+    username TEXT NOT NULL,
+    ok INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (server_key, username)
+);
+CREATE INDEX IF NOT EXISTS server_votes_at ON server_votes (at);

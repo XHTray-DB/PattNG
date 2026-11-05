@@ -117,7 +117,13 @@ private fun familyLabel(family: String) = if (family == "AETHER") "Aether" else 
 // ---------------------------------------------------------------------------------------------
 
 @Composable
-fun ConnectTab(state: V2GetUiState, vpnMode: Boolean, onToggle: () -> Unit, onChangeServer: () -> Unit = {}) {
+fun ConnectTab(
+    state: V2GetUiState,
+    vpnMode: Boolean,
+    onToggle: () -> Unit,
+    onChangeServer: () -> Unit = {},
+    onDismissAnnouncement: () -> Unit = {},
+) {
     val connection = state.connection
     val connected = connection == V2GetConnection.Connected
     val server = state.servers.firstOrNull { it.guid == state.selectedGuid } ?: state.servers.firstOrNull()
@@ -129,6 +135,35 @@ fun ConnectTab(state: V2GetUiState, vpnMode: Boolean, onToggle: () -> Unit, onCh
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.height(14.dp))
+        val noticeContext = androidx.compose.ui.platform.LocalContext.current
+        state.announcement?.let { announcement ->
+            NoticeCard(
+                icon = R.drawable.ic_v2g_info,
+                text = announcement.text,
+                action = if (announcement.url.isNotBlank()) stringResource(R.string.v2get_announcement_open) else null,
+                onAction = {
+                    runCatching {
+                        noticeContext.startActivity(
+                            android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(announcement.url))
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                },
+                onDismiss = onDismissAnnouncement,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+        val alert = remember(state.session) { com.v2ray.ang.v2get.V2GetNotices.alertFor(state.session, LocalDate.now()) }
+        alert?.let {
+            NoticeCard(
+                icon = R.drawable.ic_v2g_clock,
+                text = com.v2ray.ang.v2get.V2GetNotices.alertText(noticeContext, it),
+                action = stringResource(R.string.v2get_alert_renew),
+                onAction = { openSupport(noticeContext) },
+                onDismiss = null,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
         StatusCard(connection, state.phase)
         Spacer(Modifier.height(18.dp))
         PowerButton(connection, onToggle)
@@ -257,6 +292,37 @@ private fun StatusCard(connection: V2GetConnection, phase: V2GetPhase = V2GetPha
                     ),
                     fontSize = 12.sp,
                     color = V2G.Muted,
+                )
+            }
+        }
+    }
+}
+
+/** A card at the top of the main screen: the panel's announcement, or a warning that the quota or the time runs out. */
+@Composable
+private fun NoticeCard(icon: Int, text: String, action: String?, onAction: () -> Unit, onDismiss: (() -> Unit)?) {
+    GlassCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconBox(icon, size = 36.dp)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(text, fontSize = 13.sp, color = V2G.Ink)
+                if (action != null) {
+                    Text(
+                        action,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = V2G.Magenta,
+                        modifier = Modifier.padding(top = 4.dp).clickable(onClick = onAction),
+                    )
+                }
+            }
+            if (onDismiss != null) {
+                Text(
+                    "\u2715",
+                    fontSize = 16.sp,
+                    color = V2G.Muted,
+                    modifier = Modifier.padding(start = 8.dp).clickable(onClick = onDismiss),
                 )
             }
         }
@@ -561,7 +627,7 @@ fun ServersTab(state: V2GetUiState, onConnect: (String) -> Unit, onDisconnect: (
 // ---------------------------------------------------------------------------------------------
 
 @Composable
-fun AccountTab(session: V2GetSession?, onCopyId: (String) -> Unit, onLogout: () -> Unit) {
+fun AccountTab(session: V2GetSession?, onCopyId: (String) -> Unit, onLogout: () -> Unit, onSendReport: () -> Unit = {}) {
     val unlimited = session != null && session.quotaBytes <= 0
     val totalGb = session?.let { V2GetQuota.toGigabytes(it.quotaBytes) } ?: 0.0
     val usedText = V2GetQuota.formatBytes(session?.usedBytes ?: 0L)
@@ -700,6 +766,17 @@ fun AccountTab(session: V2GetSession?, onCopyId: (String) -> Unit, onLogout: () 
             body = stringResource(R.string.v2get_support_tap),
             modifier = Modifier.fillMaxWidth(),
         )
+        Spacer(Modifier.height(10.dp))
+        GlassCard(Modifier.fillMaxWidth().clickable(onClick = onSendReport), shape = RoundedCornerShape(20.dp)) {
+            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconBox(R.drawable.ic_v2g_info, size = 40.dp)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.v2get_report_button), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = V2G.Ink)
+                    Text(stringResource(R.string.v2get_report_hint), fontSize = 12.sp, color = V2G.Muted)
+                }
+            }
+        }
         Spacer(Modifier.height(18.dp))
         OutlinedButton(
             onClick = onLogout,

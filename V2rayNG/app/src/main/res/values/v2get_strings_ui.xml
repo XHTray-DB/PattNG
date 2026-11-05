@@ -141,4 +141,16 @@
     <string name="v2get_block_support_cta" translatable="false">پیگیری در تلگرام</string>
     <string name="v2get_block_recheck" translatable="false">بررسی دوباره وضعیت</string>
     <string name="v2get_block_checking" translatable="false">در حال بررسی…</string>
+
+    <string name="v2get_alert_title" translatable="false">تمدید اشتراک V2GET</string>
+    <string name="v2get_alert_channel" translatable="false">هشدار حجم و اشتراک</string>
+    <string name="v2get_alert_quota_almost" translatable="false">فقط %1$d٪ از حجم اشتراک شما مانده است.</string>
+    <string name="v2get_alert_quota_low" translatable="false">%1$d٪ از حجم اشتراک شما مصرف شده است.</string>
+    <string name="v2get_alert_expiry_today" translatable="false">اشتراک شما امروز تمام می‌شود.</string>
+    <string name="v2get_alert_expiry_days" translatable="false">%1$d روز تا پایان اشتراک شما مانده است.</string>
+    <string name="v2get_alert_renew" translatable="false">تمدید در تلگرام</string>
+    <string name="v2get_announcement_open" translatable="false">مشاهده</string>
+    <string name="v2get_report_button" translatable="false">ارسال گزارش به پشتیبانی</string>
+    <string name="v2get_report_hint" translatable="false">اگر اتصال مشکل دارد، گزارش را بفرستید؛ رمز و لینک سرورها در آن نیست.</string>
+    <string name="v2get_report_failed" translatable="false">ساخت گزارش ناموفق بود.</string>
 </resources>

@@ -961,7 +961,7 @@ object CoreConfigManager {
             inbound1.settings?.auth = "noauth"
             inbound1.settings?.accounts = null
         }
-        val fakedns = MmkvManager.decodeSettingsBool(AppConfig.PREF_FAKE_DNS_ENABLED, true)
+        val fakedns = MmkvManager.decodeSettingsBool(AppConfig.PREF_FAKE_DNS_ENABLED, false)
         val sniffAllTlsAndHttp =
             MmkvManager.decodeSettingsBool(AppConfig.PREF_SNIFFING_ENABLED, true) != false
         inbound1.sniffing?.enabled = fakedns || sniffAllTlsAndHttp
@@ -1038,11 +1038,11 @@ object CoreConfigManager {
      * Configure local DNS inbounds, outbounds, and routing rules.
      */
     private fun configureLocalDns(configContext: CoreConfigContext, v2rayConfig: V2rayConfig) {
-        if (!MmkvManager.decodeSettingsBool(AppConfig.PREF_LOCAL_DNS_ENABLED, true)) {
+        if (!MmkvManager.decodeSettingsBool(AppConfig.PREF_LOCAL_DNS_ENABLED, false)) {
             return
         }
 
-        if (MmkvManager.decodeSettingsBool(AppConfig.PREF_FAKE_DNS_ENABLED, true)) {
+        if (MmkvManager.decodeSettingsBool(AppConfig.PREF_FAKE_DNS_ENABLED, false)) {
             val geositeCn = arrayListOf(AppConfig.GEOSITE_CN)
             val routingDomains = configContext.routingDomainRules
                 .asSequence()

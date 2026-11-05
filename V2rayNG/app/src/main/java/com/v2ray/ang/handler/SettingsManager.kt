@@ -517,8 +517,8 @@ object SettingsManager {
      * @return True if HEV TUN is used, false otherwise.
      */
     fun isUsingHevTun(): Boolean {
-        // PattNG: Xray-core's own TUN is the default
-        return MmkvManager.decodeSettingsBool(AppConfig.PREF_USE_HEV_TUNNEL, false)
+        // V2GET: hev-socks5-tunnel is the default
+        return MmkvManager.decodeSettingsBool(AppConfig.PREF_USE_HEV_TUNNEL, true)
     }
 
     /**
@@ -603,6 +603,7 @@ object SettingsManager {
      * Ensure default settings are present in MMKV.
      */
     private fun ensureDefaultSettings() {
+        applyV2GetProfile()
         // Write defaults in the exact order requested by the user
         ensureDefaultValue(AppConfig.PREF_MODE, VPN)
         ensureDefaultValue(AppConfig.PREF_VPN_DNS, AppConfig.DNS_VPN)
@@ -621,6 +622,47 @@ object SettingsManager {
         ensureDefaultValue(AppConfig.PREF_OBSERVATORY_LEAST_LOAD_METHOD, AppConfig.OBSERVATORY_LEAST_LOAD_METHOD)
         ensureDefaultValue(AppConfig.PREF_OBSERVATORY_LEAST_LOAD_SAMPLING, AppConfig.OBSERVATORY_LEAST_LOAD_SAMPLING)
         ensureDefaultValue(AppConfig.PREF_OBSERVATORY_LEAST_LOAD_TIMEOUT, AppConfig.OBSERVATORY_LEAST_LOAD_TIMEOUT)
+    }
+
+    /**
+     * V2GET: puts the core settings to the profile the app is made for, once: Hev TUN on, the local and the fake DNS off,
+     * a confirmation before a config is deleted, dynamic colour on, and the rest as the settings screen shows them.
+     * It runs for an install that was made before this profile too, so what the person set by hand before is replaced
+     * this one time; the settings are theirs to change after.
+     */
+    private fun applyV2GetProfile() {
+        if (MmkvManager.decodeSettingsBool(AppConfig.PREF_V2GET_PROFILE_APPLIED, false)) return
+        MmkvManager.encodeSettings(AppConfig.PREF_USE_HEV_TUNNEL, true)
+        MmkvManager.encodeSettings(AppConfig.PREF_LOCAL_DNS_ENABLED, false)
+        MmkvManager.encodeSettings(AppConfig.PREF_FAKE_DNS_ENABLED, false)
+        MmkvManager.encodeSettings(AppConfig.PREF_CONFIRM_REMOVE, true)
+        MmkvManager.encodeSettings(AppConfig.PREF_DYNAMIC_COLOR, true)
+        MmkvManager.encodeSettings(AppConfig.PREF_SNIFFING_ENABLED, true)
+        MmkvManager.encodeSettings(AppConfig.PREF_ROUTE_ONLY_ENABLED, false)
+        MmkvManager.encodeSettings(AppConfig.PREF_PROXY_SHARING, false)
+        MmkvManager.encodeSettings(AppConfig.PREF_SOCKS_ENABLE_UDP, true)
+        MmkvManager.encodeSettings(AppConfig.PREF_IPV6_ENABLED, true)
+        MmkvManager.encodeSettings(AppConfig.PREF_PREFER_IPV6, false)
+        MmkvManager.encodeSettings(AppConfig.PREF_APPEND_HTTP_PROXY, false)
+        MmkvManager.encodeSettings(AppConfig.PREF_SPEED_ENABLED, false)
+        MmkvManager.encodeSettings(AppConfig.PREF_DOUBLE_COLUMN_DISPLAY, false)
+        MmkvManager.encodeSettings(AppConfig.PREF_GROUP_ALL_DISPLAY, false)
+        MmkvManager.encodeSettings(AppConfig.PREF_LOGLEVEL, "warning")
+        MmkvManager.encodeSettings(AppConfig.PREF_OUTBOUND_DOMAIN_RESOLVE_METHOD, AppConfig.DEFAULT_OUTBOUND_DOMAIN_RESOLVE_METHOD)
+        MmkvManager.encodeSettings(AppConfig.PREF_VPN_BYPASS_LAN, AppConfig.DEFAULT_VPN_BYPASS_LAN)
+        MmkvManager.encodeSettings(AppConfig.PREF_HEV_TUNNEL_LOGLEVEL, AppConfig.DEFAULT_HEV_TUNNEL_LOGLEVEL)
+        MmkvManager.encodeSettings(AppConfig.PREF_HEV_TUNNEL_RW_TIMEOUT, AppConfig.HEVTUN_RW_TIMEOUT)
+        MmkvManager.encodeSettings(AppConfig.PREF_VPN_DNS, AppConfig.DNS_VPN)
+        MmkvManager.encodeSettings(AppConfig.PREF_VPN_MTU, AppConfig.VPN_MTU.toString())
+        MmkvManager.encodeSettings(AppConfig.PREF_SOCKS_PORT, AppConfig.PORT_SOCKS)
+        MmkvManager.encodeSettings(AppConfig.PREF_AETHER_LISTEN_PORT, AppConfig.PORT_AETHER_SOCKS)
+        MmkvManager.encodeSettings(AppConfig.PREF_REMOTE_DNS, AppConfig.DNS_PROXY)
+        MmkvManager.encodeSettings(AppConfig.PREF_DOMESTIC_DNS, AppConfig.DNS_DIRECT)
+        MmkvManager.encodeSettings(AppConfig.PREF_DELAY_TEST_URL, AppConfig.DELAY_TEST_URL)
+        MmkvManager.encodeSettings(AppConfig.PREF_IP_API_URL, AppConfig.IP_API_URL)
+        MmkvManager.encodeSettings(AppConfig.PREF_REAL_PING_CONCURRENCY, "16")
+        MmkvManager.encodeSettings(AppConfig.PREF_MODE, VPN)
+        MmkvManager.encodeSettings(AppConfig.PREF_V2GET_PROFILE_APPLIED, true)
     }
 
     private fun ensureDefaultValue(key: String, default: String) {

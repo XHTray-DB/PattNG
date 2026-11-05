@@ -35,8 +35,8 @@ object V2GetSettings {
      * fake DNS are on and the remote DNS is an encrypted (https) address. The app's defaults already are that.
      */
     fun dnsProtected(): Boolean =
-        MmkvManager.decodeSettingsBool(AppConfig.PREF_LOCAL_DNS_ENABLED, true) &&
-            MmkvManager.decodeSettingsBool(AppConfig.PREF_FAKE_DNS_ENABLED, true) &&
+        MmkvManager.decodeSettingsBool(AppConfig.PREF_LOCAL_DNS_ENABLED, false) &&
+            MmkvManager.decodeSettingsBool(AppConfig.PREF_FAKE_DNS_ENABLED, false) &&
             isEncryptedDns(MmkvManager.decodeSettingsString(AppConfig.PREF_REMOTE_DNS))
 
     /** Blank is the app's default, an encrypted address. */

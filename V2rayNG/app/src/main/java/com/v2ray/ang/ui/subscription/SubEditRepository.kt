@@ -140,7 +140,7 @@ class SubEditRepository : SubEditSource, SubscriptionListSource {
     override suspend fun profileNames(excluded: Set<EConfigType>): List<String> = storedProfileNames(excluded)
 
     override suspend fun confirmsRemove(): Boolean =
-        withContext(Dispatchers.IO) { MmkvManager.decodeSettingsBool(AppConfig.PREF_CONFIRM_REMOVE, false) }
+        withContext(Dispatchers.IO) { MmkvManager.decodeSettingsBool(AppConfig.PREF_CONFIRM_REMOVE, true) }
 
     override suspend fun loadSubscriptions(): List<SubscriptionCache> =
         withContext(Dispatchers.IO) { MmkvManager.decodeSubscriptions() }

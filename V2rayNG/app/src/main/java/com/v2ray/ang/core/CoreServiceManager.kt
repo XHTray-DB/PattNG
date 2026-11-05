@@ -34,6 +34,8 @@ import com.v2ray.ang.util.LogUtil
 import com.v2ray.ang.v2get.V2GetConfigSource
 import com.v2ray.ang.v2get.V2GetCountry
 import com.v2ray.ang.v2get.V2GetRecovery
+import com.v2ray.ang.v2get.V2GetServerStats
+import com.v2ray.ang.v2get.V2GetSettings
 import com.v2ray.ang.v2get.V2GetTraffic
 import com.v2ray.ang.util.Utils
 import kotlinx.coroutines.CoroutineScope
@@ -61,6 +63,9 @@ object CoreServiceManager {
 
     /** V2GET: the least time between two such checks. */
     private const val LOSS_CHECK_COOLDOWN_MS = 15_000L
+
+    /** V2GET: how many times one run moves to another server by itself. */
+    private const val MAX_SERVER_SWITCHES = 3
     private const val TRAFFIC_POLL_MS = 3_000L
     private const val LOCATION_ATTEMPTS = 8
 
@@ -102,6 +107,10 @@ object CoreServiceManager {
 
     @Volatile
     private var lastLossCheckAt = 0L
+
+    // V2GET: the servers this run gave up on, and how many times it moved to another one by itself.
+    private val failedServers = mutableSetOf<String>()
+    private var serverSwitches = 0
 
     /** Tun descriptor the core was started with, null in the proxy only and root run modes. */
     private var currentVpnInterface: ParcelFileDescriptor? = null
@@ -388,7 +397,11 @@ object CoreServiceManager {
             // The tests were told to stop as this start began; the session's core waits for their cores to be gone.
             aetherExitHandled = false
             aetherWasReady = false
-            if (!isReload) V2GetRecovery.reset()
+            if (!isReload) {
+                V2GetRecovery.reset()
+                failedServers.clear()
+                serverSwitches = 0
+            }
             AetherCoreManager.start(service, aether, afterProbes = !isReload) { onAetherExit(guid) }
         }
 
@@ -413,6 +426,7 @@ object CoreServiceManager {
         if (aether != null) {
             announceAetherWarmUp(service, guid, isReload)
         } else if (!isReload) {
+            V2GetServerStats.report(guid, true)
             MessageHelper.sendMsg2UI(service, AppConfig.MSG_STATE_START_SUCCESS, "")
         }
         NotificationManager.startSpeedNotification()
@@ -432,8 +446,14 @@ object CoreServiceManager {
         NotificationManager.setStatusLine(connecting)
         aetherWarmUpJob = aetherScope.launch {
             var listening = false
+            var toldSlow = false
             while (isActive && !listening && AetherCoreManager.isRunning) {
                 listening = AetherCoreManager.awaitListening(AETHER_WARM_UP_MS)
+                // V2GET: a server that is still not carrying traffic after the first wait is told to the panel as one that did not come up.
+                if (!listening && !toldSlow) {
+                    toldSlow = true
+                    V2GetServerStats.report(guid, false)
+                }
             }
             when (AetherCoreManager.warmUpOutcome(listening, isActive, isRunning())) {
                 AetherCoreManager.WarmUpOutcome.ABANDONED -> Unit
@@ -441,6 +461,7 @@ object CoreServiceManager {
                 AetherCoreManager.WarmUpOutcome.CORE_EXITED -> onAetherExit(guid)
                 AetherCoreManager.WarmUpOutcome.LISTENING -> {
                     aetherWasReady = true
+                    V2GetServerStats.report(guid, true)
                     NotificationManager.setStatusLine(null)
                     val ready = if (isReload) AppConfig.MSG_STATE_RUNNING else AppConfig.MSG_STATE_START_SUCCESS
                     MessageHelper.sendMsg2UI(service, ready, "")
@@ -474,6 +495,7 @@ object CoreServiceManager {
                 return@execute
             }
             aetherExitHandled = true
+            V2GetServerStats.report(guid, false)
             LogUtil.e(
                 AppConfig.TAG,
                 "StartCore-Manager: Aether core exited while running, stopping ${service.javaClass.simpleName}, guid=$guid"
@@ -494,9 +516,16 @@ object CoreServiceManager {
         if (!claimReload(askedBy = monitor)) return false
         val wait = V2GetRecovery.take(System.currentTimeMillis())
         if (wait == null) {
-            isReloading = false
-            LogUtil.w(AppConfig.TAG, "StartCore-Manager: Aether recovery given up, the tries of the last minutes are spent ($reason)")
-            return false
+            // The tries on this server are spent: with Zero-Drop on, the run moves to another server instead of stopping.
+            val next = pickAnotherServer()
+            if (next == null) {
+                isReloading = false
+                LogUtil.w(AppConfig.TAG, "StartCore-Manager: Aether recovery given up, the tries of the last minutes are spent ($reason)")
+                return false
+            }
+            LogUtil.w(AppConfig.TAG, "StartCore-Manager: Aether recovery moves to another server ($reason), guid=$next")
+            recoveryScope.launch { reloadCore(monitor) }
+            return true
         }
         LogUtil.w(AppConfig.TAG, "StartCore-Manager: Aether recovery in $wait ms: $reason")
         recoveryScope.launch {
@@ -504,6 +533,27 @@ object CoreServiceManager {
             reloadCore(monitor)
         }
         return true
+    }
+
+    /**
+     * V2GET: the next server for a run whose server keeps dropping: the one after it in the list that this run did
+     * not give up on yet, chosen as the server of the run. Null when Zero-Drop is off, the run has moved three times
+     * already, or no other server is left. The server given up on is told to the panel as one that did not hold.
+     */
+    private fun pickAnotherServer(): String? {
+        if (!V2GetSettings.zeroDrop() || serverSwitches >= MAX_SERVER_SWITCHES) return null
+        val current = MmkvManager.getSelectServer() ?: return null
+        if (!V2GetConfigSource.isV2GetGuid(current)) return null
+        failedServers.add(current)
+        V2GetServerStats.report(current, false)
+        val servers = V2GetConfigSource.loadServers().map { it.guid }
+        val next = servers.dropWhile { it != current }.drop(1).firstOrNull { it !in failedServers }
+            ?: servers.firstOrNull { it !in failedServers }
+            ?: return null
+        if (!V2GetConfigSource.selectServer(next)) return null
+        serverSwitches++
+        V2GetRecovery.reset()
+        return next
     }
 
     /**

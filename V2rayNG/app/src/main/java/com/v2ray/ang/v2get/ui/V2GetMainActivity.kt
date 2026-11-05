@@ -128,7 +128,28 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
             when (result) {
                 is V2GetAuthManager.SyncResult.UpdateRequired -> result.info.show(this@V2GetMainActivity)
                 is V2GetAuthManager.SyncResult.Blocked -> V2GetBlock.show(this@V2GetMainActivity, result.reason)
+                is V2GetAuthManager.SyncResult.Ok -> {
+                    // The panel's announcement came with the answer, and the figures may call for a warning.
+                    viewModel.reloadNotices()
+                    com.v2ray.ang.v2get.V2GetNotices.alertFor(result.session, java.time.LocalDate.now())?.let {
+                        com.v2ray.ang.v2get.V2GetNotices.notifyOnce(applicationContext, result.session, it)
+                    }
+                }
                 else -> Unit
+            }
+        }
+    }
+
+    /** Builds the report for support (the app's log, with nothing private in it) and opens the share sheet. */
+    private fun sendReport() {
+        lifecycleScope.launch {
+            val intent = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.v2ray.ang.v2get.V2GetReport.build(this@V2GetMainActivity)
+            }
+            if (intent == null) {
+                toast(getString(R.string.v2get_report_failed))
+            } else {
+                startActivity(Intent.createChooser(intent, getString(R.string.v2get_report_button)))
             }
         }
     }
@@ -205,11 +226,18 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
                     Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())
                 ) {
                     when (tab) {
-                        V2GetTab.Connect -> ConnectTab(state, vpnMode, ::toggleConnection, onChangeServer = { tab = V2GetTab.Servers })
+                        V2GetTab.Connect -> ConnectTab(
+                            state,
+                            vpnMode,
+                            ::toggleConnection,
+                            onChangeServer = { tab = V2GetTab.Servers },
+                            onDismissAnnouncement = { state.announcement?.let { viewModel.dismissAnnouncement(it.id) } },
+                        )
                         V2GetTab.Servers -> ServersTab(state, ::connectTo, ::toggleConnection)
                         V2GetTab.Account -> AccountTab(
                             session = state.session,
                             onCopyId = ::copyAccountId,
+                            onSendReport = ::sendReport,
                             onLogout = {
                                 // The core of the account goes first: a tunnel left running would outlive the profile it was built from.
                                 LauncherManager.stopService(this@V2GetMainActivity)

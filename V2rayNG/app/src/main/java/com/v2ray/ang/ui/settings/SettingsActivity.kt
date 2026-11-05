@@ -114,8 +114,8 @@ fun SettingsScreen(
     var advancedSettingsExpanded by rememberSaveable { mutableStateOf(true) }
     var modeSettingsExpanded by rememberSaveable { mutableStateOf(true) }
 
-    var localDns by rememberMmkvBool(AppConfig.PREF_LOCAL_DNS_ENABLED, true)
-    var fakeDns by rememberMmkvBool(AppConfig.PREF_FAKE_DNS_ENABLED, true)
+    var localDns by rememberMmkvBool(AppConfig.PREF_LOCAL_DNS_ENABLED, false)
+    var fakeDns by rememberMmkvBool(AppConfig.PREF_FAKE_DNS_ENABLED, false)
     var appendHttpProxy by rememberMmkvBool(AppConfig.PREF_APPEND_HTTP_PROXY, false)
     var vpnDns by rememberMmkvString(AppConfig.PREF_VPN_DNS, "")
     var vpnBypassLan by rememberMmkvString(AppConfig.PREF_VPN_BYPASS_LAN, AppConfig.DEFAULT_VPN_BYPASS_LAN)
@@ -139,7 +139,7 @@ fun SettingsScreen(
 
     var hevTunLogLevel by rememberMmkvString(AppConfig.PREF_HEV_TUNNEL_LOGLEVEL, AppConfig.DEFAULT_HEV_TUNNEL_LOGLEVEL)
     var hevTunRwTimeout by rememberMmkvString(AppConfig.PREF_HEV_TUNNEL_RW_TIMEOUT, "")
-    var useHevTun by rememberMmkvBool(AppConfig.PREF_USE_HEV_TUNNEL, false)
+    var useHevTun by rememberMmkvBool(AppConfig.PREF_USE_HEV_TUNNEL, true)
 
     var enableLocalProxy by rememberMmkvBool(AppConfig.PREF_ENABLE_LOCAL_PROXY, true)
     var socksPort by rememberMmkvString(AppConfig.PREF_SOCKS_PORT, "")
@@ -150,7 +150,7 @@ fun SettingsScreen(
     var proxySharing by rememberMmkvBool(AppConfig.PREF_PROXY_SHARING, false)
 
     var speedEnabled by rememberMmkvBool(AppConfig.PREF_SPEED_ENABLED, false)
-    var confirmRemove by rememberMmkvBool(AppConfig.PREF_CONFIRM_REMOVE, false)
+    var confirmRemove by rememberMmkvBool(AppConfig.PREF_CONFIRM_REMOVE, true)
     var doubleColumnDisplay by rememberMmkvBool(AppConfig.PREF_DOUBLE_COLUMN_DISPLAY, false)
     var groupAllDisplay by rememberMmkvBool(AppConfig.PREF_GROUP_ALL_DISPLAY, false)
     var language by remember {

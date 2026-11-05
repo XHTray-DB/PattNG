@@ -56,6 +56,8 @@ data class V2GetUiState(
     val notice: V2GetNotice? = null,
     val servers: List<V2GetServer> = emptyList(),
     val selectedGuid: String? = null,
+    /** The panel's announcement to every account that this phone has not dismissed. */
+    val announcement: com.v2ray.ang.v2get.V2GetAnnouncement? = null,
 )
 
 /**
@@ -69,6 +71,7 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
             session = V2GetSession.loadLive(),
             servers = V2GetConfigSource.loadServers(),
             selectedGuid = V2GetConfigSource.selectedGuid(),
+            announcement = com.v2ray.ang.v2get.V2GetNotices.announcement(),
         )
     )
     val uiState: StateFlow<V2GetUiState> = _uiState.asStateFlow()
@@ -94,6 +97,8 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
                 _uiState.update { reduce(it, event) }
                 when (event) {
                     MainServiceEvent.StateRunning, MainServiceEvent.StateStartSuccess -> {
+                        // The core may have moved to another server by itself (see CoreServiceManager): the screens follow.
+                        _uiState.update { it.copy(selectedGuid = V2GetConfigSource.selectedGuid()) }
                         detectCountry()
                         startLivePolling()
                         startBackgroundTests()
@@ -162,9 +167,21 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
                 session = V2GetSession.loadLive(),
                 servers = V2GetConfigSource.loadServers(),
                 selectedGuid = V2GetConfigSource.selectedGuid(),
+                announcement = com.v2ray.ang.v2get.V2GetNotices.announcement(),
             )
         }
         dataSource.queryServiceState()
+    }
+
+    /** Reads what the panel's last answer left (the announcement) after the account was checked. */
+    fun reloadNotices() {
+        _uiState.update { it.copy(announcement = com.v2ray.ang.v2get.V2GetNotices.announcement()) }
+    }
+
+    /** Hides the announcement on this phone; a newer one shows again. */
+    fun dismissAnnouncement(id: Long) {
+        com.v2ray.ang.v2get.V2GetNotices.dismiss(id)
+        _uiState.update { it.copy(announcement = null) }
     }
 
     /** The server the next connection uses. */

@@ -162,6 +162,8 @@ object V2GetAuthManager {
                 HttpURLConnection.HTTP_OK -> {
                     val root = JsonParser.parseString(conn.inputStream.bufferedReader().use { it.readText() }).asJsonObject
                     val fresh = storeFigures(session, root.obj("user"))
+                    // The panel's announcement to every account, or none: what is there now replaces what was kept.
+                    V2GetNotices.saveAnnouncement(root.get("announcement"))
                     val blocked = V2GetBlock.fromStatus(root.obj("user")?.text("status"))
                     if (blocked != null) {
                         V2GetBlock.enforce(blocked)
@@ -290,6 +292,36 @@ object V2GetAuthManager {
             if (delay > 0) Thread.sleep(delay)
             if (V2GetSession.load() == null) return
             if (flushPending()) return
+        }
+    }
+
+    /**
+     * Tells the panel whether a connection to the server [key] came up, which it counts (one word per account and
+     * server) to leave out the servers most accounts could not use. Best effort: a failure is not retried. Blocking.
+     */
+    fun reportServer(key: String, ok: Boolean) {
+        val session = V2GetSession.load() ?: return
+        if (!apiBase().startsWith("https://", ignoreCase = true)) return
+        var conn: HttpURLConnection? = null
+        try {
+            conn = (URL("${apiBase()}/api/v1/user/server-report").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                setRequestProperty("Authorization", "Bearer ${session.token}")
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty(APP_VERSION_HEADER, BuildConfig.VERSION_NAME)
+                doOutput = true
+                connectTimeout = 8_000
+                readTimeout = 8_000
+            }
+            val payload = JsonObject().apply {
+                addProperty("key", key)
+                addProperty("ok", ok)
+            }
+            conn.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+            conn.responseCode
+        } catch (_: Exception) {
+        } finally {
+            conn?.disconnect()
         }
     }
 
