@@ -288,6 +288,7 @@ class V2GetMainActivity : HelperBaseComponentActivity() {
             startJob?.cancel()
             viewModel.cancelStart()
         } else {
+            viewModel.stopRequested()
             LauncherManager.stopService(this)
             // A daemon that died takes no stop and answers nothing; asking for its state lets that silence show as stopped.
             viewModel.refresh()

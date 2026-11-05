@@ -603,6 +603,8 @@ object CoreServiceManager {
         val current = MmkvManager.getSelectServer() ?: return null
         if (!V2GetConfigSource.isV2GetGuid(current)) return null
         failedServers.add(current)
+        // A server that carried nothing must not be the one the next start tries first.
+        if (V2GetSettings.lastGood() == current) V2GetSettings.setLastGood("")
         V2GetServerStats.report(current, false)
         val servers = V2GetConfigSource.loadServers().map { it.guid }
         val next = servers.dropWhile { it != current }.drop(1).firstOrNull { it !in failedServers }

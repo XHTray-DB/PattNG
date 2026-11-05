@@ -123,6 +123,9 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
                         startBackgroundTests()
                     }
                     MainServiceEvent.StateNotRunning, MainServiceEvent.StateStopSuccess, is MainServiceEvent.StateStartFailure -> {
+                        if (event is MainServiceEvent.StateStartFailure) {
+                            _uiState.value.selectedGuid?.let { if (V2GetSettings.lastGood() == it) V2GetSettings.setLastGood("") }
+                        }
                         countryJob?.cancel()
                         liveJob?.cancel()
                         backgroundJob?.cancel()
@@ -454,6 +457,11 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
         dataSource.cancelAllPing()
         pendingTests.values.forEach { it.complete(false) }
         _uiState.update { it.copy(connection = V2GetConnection.Disconnected, phase = V2GetPhase.None) }
+    }
+
+    /** The person asked to stop: a "not running" answer is the truth again, so the screen follows it at once. */
+    fun stopRequested() {
+        startGraceUntil = 0L
     }
 
     /** A start that did not go ahead after [beginStart], such as a refused VPN permission. */

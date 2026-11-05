@@ -46,7 +46,9 @@ object V2GetSettings {
      * DNS leak protection: the remote DNS the core asks through the tunnel is an encrypted (https) address. It is a
      * switch of its own, so it can be turned off and on; the local DNS and the fake DNS stay off either way.
      */
-    fun dnsProtected(): Boolean = MmkvManager.decodeSettingsBool(KEY_DNS_PROTECTED, true)
+    fun dnsProtected(): Boolean =
+        MmkvManager.decodeSettingsBool(KEY_DNS_PROTECTED, true) &&
+            isEncryptedDns(MmkvManager.decodeSettingsString(AppConfig.PREF_REMOTE_DNS))
 
     /** Blank is the app's default, an encrypted address. */
     internal fun isEncryptedDns(remote: String?): Boolean =
