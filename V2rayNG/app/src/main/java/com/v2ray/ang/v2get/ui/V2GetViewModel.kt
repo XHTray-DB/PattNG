@@ -113,7 +113,11 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
                     MainServiceEvent.StateRunning, MainServiceEvent.StateStartSuccess -> {
                         // The core may have moved to another server by itself (see CoreServiceManager): the screens follow.
                         _uiState.update { it.copy(selectedGuid = V2GetConfigSource.selectedGuid()) }
-                        _uiState.value.selectedGuid?.let { V2GetSettings.setLastGood(it) }
+                        // Only a connection that carries traffic counts: an Aether server is announced as running while it
+                        // still scans, and only the start-success signal says it came up.
+                        if (event == MainServiceEvent.StateStartSuccess) {
+                            _uiState.value.selectedGuid?.let { V2GetSettings.setLastGood(it) }
+                        }
                         detectCountry()
                         startLivePolling()
                         startBackgroundTests()
