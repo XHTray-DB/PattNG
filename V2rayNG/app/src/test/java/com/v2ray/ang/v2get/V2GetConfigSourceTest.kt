@@ -3,6 +3,7 @@ package com.v2ray.ang.v2get
 import com.v2ray.ang.dto.entities.ProfileItem
 import com.v2ray.ang.enums.EConfigType
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -160,5 +161,16 @@ class V2GetGeoFilesTest {
         } finally {
             dir.deleteRecursively()
         }
+    }
+
+    @Test
+    fun aFileEmptiedOnPurposeIsAnAnswerButAPageIsNot() {
+        assertTrue(V2GetConfigSource.isEmptied("."))
+        assertTrue(V2GetConfigSource.isEmptied(" []\n"))
+        assertTrue(V2GetConfigSource.isEmptied("{}"))
+        assertFalse(V2GetConfigSource.isEmptied(""))
+        assertFalse(V2GetConfigSource.isEmptied("   "))
+        assertFalse(V2GetConfigSource.isEmptied("404: Not Found"))
+        assertFalse(V2GetConfigSource.isEmptied("<html>login</html>"))
     }
 }

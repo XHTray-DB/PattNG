@@ -249,18 +249,45 @@ object V2GetConfigSource {
             UrlContentRequest(apiUrl, timeout = 12_000, requestHeaders = """{"Accept":"application/vnd.github.raw+json","Cache-Control":"no-cache"}"""),
             UrlContentRequest(apiUrl, timeout = 12_000, httpPort = port, proxyUsername = username, proxyPassword = password, requestHeaders = """{"Accept":"application/vnd.github.raw+json","Cache-Control":"no-cache"}"""),
         )
-        var failure = "no source answered"
+        // Every source's own failure is kept, so the message tells what each one did, not only the last.
+        val failures = mutableListOf<String>()
         sources.forEachIndexed { index, request ->
+            val way = when (index) {
+                0 -> "raw"
+                1 -> "raw via tunnel"
+                2 -> "api"
+                else -> "api via tunnel"
+            }
             try {
                 val text = HttpUtil.getUrlContentWithUserAgent(request)
-                if (extractLinks(text).isNotEmpty()) return text
-                failure = "source ${index + 1} held no usable link"
+                if (extractLinks(text).isNotEmpty() || isEmptied(text)) return text
+                failures += "$way: no usable link"
             } catch (e: Exception) {
-                failure = "${e.javaClass.simpleName}: ${e.message.orEmpty()}"
-                LogUtil.w(AppConfig.TAG, "V2GetConfigSource: source ${index + 1} failed: $failure")
+                failures += "$way: ${e.javaClass.simpleName}: ${e.message.orEmpty().take(80)}"
+                LogUtil.w(AppConfig.TAG, "V2GetConfigSource: source ${index + 1} failed: ${failures.last()}")
             }
         }
-        throw IllegalStateException(failure)
+        throw IllegalStateException(failures.joinToString(" | ").ifEmpty { "no source answered" })
+    }
+
+    /**
+     * True for a file someone emptied on purpose, such as a lone "." or "[]": short, and nothing in it but punctuation.
+     * That is an answer (no servers), where a page of any other kind (an error page, a login page) is a failure, so
+     * the servers of the last good download are not kept for it.
+     */
+    internal fun isEmptied(text: String): Boolean {
+        val trimmed = text.trim()
+        return trimmed.isNotEmpty() && trimmed.length <= 16 && trimmed.none { it.isLetterOrDigit() }
+    }
+
+    /** Takes every server of the account off the phone, and with them what was kept of the files. */
+    private fun removeAllServers() {
+        (loadServers().map { it.guid } + V2GetAuthManager.PROFILE_GUID).forEach { MmkvManager.tryRemoveServer(it) }
+        MmkvManager.encodeSettings(KEY_SERVERS, encodeServers(emptyList()))
+        MmkvManager.encodeSettings(KEY_CACHE_LIST, "")
+        MmkvManager.encodeSettings(KEY_CACHE, "")
+        MmkvManager.encodeSettings(KEY_SELECTED, "")
+        saveCountries(emptyMap())
     }
 
     private fun cachedUris(): List<String> {
@@ -297,18 +324,23 @@ object V2GetConfigSource {
         var downloadError: String? = null
         try {
             uris = extractLinks(download())
-            if (uris.isEmpty()) return "در فایل conf.json هیچ کانفیگ قابل استفاده‌ای پیدا نشد."
         } catch (e: Exception) {
             downloadError = "${e.javaClass.simpleName}: ${e.message.orEmpty()}"
             LogUtil.e(AppConfig.TAG, "V2GetConfigSource: download failed", e)
         }
-        if (uris.isEmpty()) {
+        // Only a download that failed falls back to the last good one: a file that was emptied on purpose stays empty.
+        if (downloadError != null) {
             uris = cachedUris()
             if (uris.isEmpty()) return "دریافت کانفیگ از گیت‌هاب ناموفق بود (و نسخهٔ ذخیره‌شده‌ای وجود ندارد): $downloadError"
         }
         val primaryUris = uris
         // The links of conf.json come first; those of conf2.json follow, each server once.
         uris = (primaryUris + secondaryUris()).distinct()
+        if (uris.isEmpty()) {
+            // Both files were read and both hold no server: the servers of the older files go with them.
+            removeAllServers()
+            return "در فایل‌های conf.json و conf2.json هیچ کانفیگی نیست."
+        }
 
         val built = LinkedHashMap<String, Pair<V2GetServer, ProfileItem>>()
         var parseError: String? = null
