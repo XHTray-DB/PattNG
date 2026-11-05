@@ -31,28 +31,19 @@ object V2GetSettings {
     fun perAppProxy(): Boolean = MmkvManager.decodeSettingsBool(AppConfig.PREF_PER_APP_PROXY, false)
 
     /**
-     * DNS leak protection holds when the core answers every name itself through the tunnel: the local DNS and the
-     * fake DNS are on and the remote DNS is an encrypted (https) address. The app's defaults already are that.
+     * DNS leak protection holds when the remote DNS the core asks through the tunnel is an encrypted (https) address.
+     * The local DNS and the fake DNS stay off: this switch never turns them on, and the app's defaults keep them off.
      */
-    fun dnsProtected(): Boolean =
-        MmkvManager.decodeSettingsBool(AppConfig.PREF_LOCAL_DNS_ENABLED, false) &&
-            MmkvManager.decodeSettingsBool(AppConfig.PREF_FAKE_DNS_ENABLED, false) &&
-            isEncryptedDns(MmkvManager.decodeSettingsString(AppConfig.PREF_REMOTE_DNS))
+    fun dnsProtected(): Boolean = isEncryptedDns(MmkvManager.decodeSettingsString(AppConfig.PREF_REMOTE_DNS))
 
     /** Blank is the app's default, an encrypted address. */
     internal fun isEncryptedDns(remote: String?): Boolean =
         remote.isNullOrBlank() || remote.split(",").all { it.trim().startsWith("https") }
 
-    /** Takes effect at the next connection. Turning it off only stops the fake DNS; the rest stays as it is. */
+    /** Takes effect at the next connection. Turning it on sets an encrypted remote DNS; turning it off changes nothing else. */
     fun setDnsProtected(on: Boolean) {
-        if (on) {
-            MmkvManager.encodeSettings(AppConfig.PREF_LOCAL_DNS_ENABLED, true)
-            MmkvManager.encodeSettings(AppConfig.PREF_FAKE_DNS_ENABLED, true)
-            if (!isEncryptedDns(MmkvManager.decodeSettingsString(AppConfig.PREF_REMOTE_DNS))) {
-                MmkvManager.encodeSettings(AppConfig.PREF_REMOTE_DNS, AppConfig.DNS_PROXY)
-            }
-        } else {
-            MmkvManager.encodeSettings(AppConfig.PREF_FAKE_DNS_ENABLED, false)
+        if (on && !isEncryptedDns(MmkvManager.decodeSettingsString(AppConfig.PREF_REMOTE_DNS))) {
+            MmkvManager.encodeSettings(AppConfig.PREF_REMOTE_DNS, AppConfig.DNS_PROXY)
         }
     }
 }

@@ -631,6 +631,12 @@ object SettingsManager {
      * this one time; the settings are theirs to change after.
      */
     private fun applyV2GetProfile() {
+        // The DNS protection switch of an earlier build turned the local and the fake DNS on; they go off once for those installs too.
+        if (!MmkvManager.decodeSettingsBool(AppConfig.PREF_V2GET_LOCAL_DNS_OFF_APPLIED, false)) {
+            MmkvManager.encodeSettings(AppConfig.PREF_LOCAL_DNS_ENABLED, false)
+            MmkvManager.encodeSettings(AppConfig.PREF_FAKE_DNS_ENABLED, false)
+            MmkvManager.encodeSettings(AppConfig.PREF_V2GET_LOCAL_DNS_OFF_APPLIED, true)
+        }
         if (MmkvManager.decodeSettingsBool(AppConfig.PREF_V2GET_PROFILE_APPLIED, false)) return
         MmkvManager.encodeSettings(AppConfig.PREF_USE_HEV_TUNNEL, true)
         MmkvManager.encodeSettings(AppConfig.PREF_LOCAL_DNS_ENABLED, false)

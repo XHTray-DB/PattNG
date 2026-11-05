@@ -111,6 +111,9 @@ object AppConfig {
     /** V2GET: set once the core settings were put to the V2GET profile, see SettingsManager.applyV2GetProfile. */
     const val PREF_V2GET_PROFILE_APPLIED = "v2get_core_profile_v1"
 
+    /** V2GET: set once the local and the fake DNS were switched off for installs that turned them on, see SettingsManager.applyV2GetProfile. */
+    const val PREF_V2GET_LOCAL_DNS_OFF_APPLIED = "v2get_local_dns_off_v1"
+
     /** Cache keys. */
     const val CACHE_SUBSCRIPTION_ID = "cache_subscription_id"
 

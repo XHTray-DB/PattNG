@@ -117,4 +117,42 @@ class V2GetViewModelTest {
         assertEquals(true, V2GetViewModel.needsRealTest(server("b", "VLESS")))
         assertEquals(true, V2GetViewModel.needsRealTest(server("c", "HYSTERIA2")))
     }
+
+    @Test
+    fun aNotRunningAnswerWhileAStartIsInFlightDoesNotEndIt() {
+        val connecting = V2GetUiState(connection = V2GetConnection.Connecting)
+        assertEquals(connecting, V2GetViewModel.reduce(connecting, MainServiceEvent.StateNotRunning, startInFlight = true))
+    }
+
+    @Test
+    fun aNotRunningAnswerWithNoStartInFlightStillEndsTheConnection() {
+        val connecting = V2GetUiState(connection = V2GetConnection.Connecting)
+        assertEquals(
+            V2GetConnection.Disconnected,
+            V2GetViewModel.reduce(connecting, MainServiceEvent.StateNotRunning, startInFlight = false).connection,
+        )
+    }
+
+    @Test
+    fun aStartInFlightDoesNotHideARunningConnectionStopping() {
+        val up = V2GetUiState(connection = V2GetConnection.Connected)
+        assertEquals(
+            V2GetConnection.Disconnected,
+            V2GetViewModel.reduce(up, MainServiceEvent.StateNotRunning, startInFlight = true).connection,
+        )
+    }
+
+    @Test
+    fun theFastestAnsweringAetherServerWinsWithoutAnyOtherTest() {
+        val servers = listOf(server("v"), server("a1", "AETHER"), server("a2", "AETHER"), server("a3", "AETHER"))
+        val tcp = mapOf("v" to 5L, "a1" to 90L, "a2" to 30L, "a3" to -1L)
+        assertEquals("a2", V2GetViewModel.pickAetherWinner(servers, tcp))
+    }
+
+    @Test
+    fun withoutAnAnsweringAetherServerThereIsNoAetherWinner() {
+        val servers = listOf(server("v"), server("a1", "AETHER"))
+        assertEquals(null, V2GetViewModel.pickAetherWinner(servers, mapOf("v" to 5L, "a1" to -1L)))
+        assertEquals(null, V2GetViewModel.pickAetherWinner(listOf(server("v")), mapOf("v" to 5L)))
+    }
 }

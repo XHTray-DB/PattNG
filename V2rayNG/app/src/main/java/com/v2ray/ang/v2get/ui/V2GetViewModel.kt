@@ -88,13 +88,27 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
     /** The real tests of the other servers, run beside the connection; ended with it. */
     private var backgroundJob: Job? = null
 
+    /**
+     * Until when a "not running" answer is taken for the daemon that is still starting, not for a stopped one. Any
+     * state query (the screen asks when it comes back from the VPN permission dialog, say) is answered "not running"
+     * until the core is up, which used to end a start the daemon was carrying out. Zero means no start is under way.
+     */
+    @Volatile
+    private var startGraceUntil = 0L
+
     /** The server tests waiting for the test service to finish, by request id: true when it finished, false when it was cancelled. */
     private val pendingTests = ConcurrentHashMap<String, CompletableDeferred<Boolean>>()
 
     init {
         viewModelScope.launch {
             dataSource.mainServiceEvent.collect { event ->
-                _uiState.update { reduce(it, event) }
+                val startInFlight = System.currentTimeMillis() < startGraceUntil
+                _uiState.update { reduce(it, event, startInFlight) }
+                when (event) {
+                    MainServiceEvent.StateRunning, MainServiceEvent.StateStartSuccess,
+                    MainServiceEvent.StateStopSuccess, is MainServiceEvent.StateStartFailure -> startGraceUntil = 0L
+                    else -> Unit
+                }
                 when (event) {
                     MainServiceEvent.StateRunning, MainServiceEvent.StateStartSuccess -> {
                         // The core may have moved to another server by itself (see CoreServiceManager): the screens follow.
@@ -217,7 +231,24 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
             return false
         }
         _uiState.update { it.copy(connection = V2GetConnection.Connecting) }
+        armStartGrace()
         return true
+    }
+
+    /**
+     * Opens the window in which "not running" is ignored, and asks the daemon once more when it closes, so a start
+     * that really did not happen (and sent no failure) still ends in the Disconnected state instead of hanging.
+     */
+    private fun armStartGrace() {
+        val until = System.currentTimeMillis() + START_GRACE_MS
+        startGraceUntil = until
+        viewModelScope.launch {
+            delay(START_GRACE_MS + 500L)
+            if (startGraceUntil == until && _uiState.value.connection == V2GetConnection.Connecting) {
+                startGraceUntil = 0L
+                dataSource.queryServiceState()
+            }
+        }
     }
 
     /**
@@ -266,12 +297,14 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
     }
 
     /**
-     * Picks the server the connection starts on, as fast as a working one is found: every server is tried with a TCP
-     * connection first (quick), then the ones that answered get the real delay test (a request through the server
-     * itself) one at a time, the fastest TCP answer first, and the first that really works is chosen at once. The
-     * servers not tested yet are kept in [alternatives] and tested in the background once the connection is up, so
-     * the person never waits for them. A server that cannot be tested by TCP (UDP based) is not dropped by the first
-     * step. When no server passed the real test, the lowest TCP time wins; when nothing could be measured, the
+     * Picks the server the connection starts on, as fast as a working one is found, in two stages with a hard time
+     * bound. Stage one tests only the Aether servers with a TCP connection: they have no real delay test, so an
+     * Aether server that answers is a server that connects, and the fastest one is chosen at once without touching
+     * the other servers. Only when no Aether server answered, stage two measures the rest: a TCP connection to every
+     * one (quick), then the real delay test (a request through the server itself) for the fastest few, a batch at a
+     * time. The servers not tested are kept in [alternatives] and tested in the background once the connection is up,
+     * so the person never waits for them. A server that cannot be tested by TCP (UDP based) is not dropped by the
+     * first step. When no server passed the real test, the lowest TCP time wins; when nothing could be measured, the
      * selection stays as it was.
      */
     private suspend fun selectBestServer() {
@@ -283,39 +316,42 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
             val all = servers.map { it.guid }
             dataSource.clearAllTestDelayResults(all)
             _uiState.update { it.copy(phase = V2GetPhase.Tcping) }
-            if (runServerTest(all, onlyTcp = true, budgetMs = TCP_BUDGET_MS) == false) return
-            val tcp = readDelays(all)
 
-            val order = realTestOrder(servers, tcp)
-            _uiState.update { it.copy(phase = V2GetPhase.RealPing) }
-            val real = HashMap<String, Long>()
-            var winner: String? = null
-            val byGuid = servers.associateBy { it.guid }
-            for (guid in order) {
-                // An Aether server has no real delay test: its TCP answer is the proof that it works.
-                if (byGuid[guid]?.let { needsRealTest(it) } == false) {
-                    val delay = tcp[guid] ?: -1L
-                    real[guid] = delay
-                    if (delay > 0L) {
-                        winner = guid
-                        break
-                    }
-                    continue
-                }
-                dataSource.clearAllTestDelayResults(listOf(guid))
-                // The person ended the start while this server was measured: nothing else is tested or selected.
-                if (runServerTest(listOf(guid), onlyTcp = false, budgetMs = REAL_BUDGET_MS) == false) return
-                val delay = readDelays(listOf(guid))[guid] ?: -1L
-                real[guid] = delay
-                if (delay > 0L) {
-                    winner = guid
-                    break
+            // Stage one: the Aether servers, TCP only. Their answer is the proof that they work.
+            val aether = servers.filter { !needsRealTest(it) }
+            val tcp = HashMap<String, Long>()
+            if (aether.isNotEmpty()) {
+                val aetherGuids = aether.map { it.guid }
+                if (runServerTest(aetherGuids, onlyTcp = true, budgetMs = AETHER_TCP_BUDGET_MS) == false) return
+                tcp.putAll(readDelays(aetherGuids))
+                pickAetherWinner(servers, tcp)?.let { winner ->
+                    selectServer(winner)
+                    alternatives = all.filter { it != winner }
+                    return
                 }
             }
 
-            val best = winner ?: bestServer(servers, tcp, real)
+            // Stage two: every other server, TCP first, then the real test for the fastest few.
+            val others = servers.filter { needsRealTest(it) }
+            val otherGuids = others.map { it.guid }
+            if (otherGuids.isNotEmpty()) {
+                if (runServerTest(otherGuids, onlyTcp = true, budgetMs = TCP_BUDGET_MS) == false) return
+                tcp.putAll(readDelays(otherGuids))
+            }
+            val order = realTestOrder(others, tcp).take(REAL_TEST_MAX)
+            _uiState.update { it.copy(phase = V2GetPhase.RealPing) }
+            val real = HashMap<String, Long>()
+            for (batch in order.chunked(REAL_BATCH_SIZE)) {
+                dataSource.clearAllTestDelayResults(batch)
+                // The person ended the start while these servers were measured: nothing else is tested or selected.
+                if (runServerTest(batch, onlyTcp = false, budgetMs = REAL_BUDGET_MS) == false) return
+                real.putAll(readDelays(batch))
+                if (real.values.any { it > 0L }) break
+            }
+
+            val best = bestServer(servers, tcp, real)
             best?.let { selectServer(it) }
-            alternatives = order.filter { it != best }
+            alternatives = all.filter { it != best && it !in real.keys }.ifEmpty { all.filter { it != best } }
         } finally {
             _uiState.update { it.copy(phase = V2GetPhase.None) }
         }
@@ -390,6 +426,7 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
 
     /** The person ended a start that was still measuring servers: the tests stop and the screen is idle again. */
     fun cancelStart() {
+        startGraceUntil = 0L
         backgroundJob?.cancel()
         dataSource.cancelAllPing()
         pendingTests.values.forEach { it.complete(false) }
@@ -398,6 +435,7 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
 
     /** A start that did not go ahead after [beginStart], such as a refused VPN permission. */
     fun startCancelled() {
+        startGraceUntil = 0L
         _uiState.update { it.copy(connection = V2GetConnection.Disconnected) }
     }
 
@@ -416,7 +454,14 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
 
     companion object {
         private const val COUNTRY_ATTEMPTS = 4
-        private const val TCP_BUDGET_MS = 10_000L
+        private const val TCP_BUDGET_MS = 5_000L
+
+        /** The Aether servers are tested first and by TCP alone; they either answer at once or not at all. */
+        private const val AETHER_TCP_BUDGET_MS = 4_000L
+
+        /** The real tests of the start: at most this many servers, this many at a time, so the start ends in seconds. */
+        private const val REAL_TEST_MAX = 6
+        private const val REAL_BATCH_SIZE = 3
 
         /** The background tests wait this long after the connection is up, and test at most this many servers. */
         private const val BACKGROUND_TEST_DELAY_MS = 20_000L
@@ -425,8 +470,11 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
         /** Below this heap class (in MB) a phone is treated as weak and runs no background tests. */
         private const val WEAK_DEVICE_MEMORY_CLASS_MB = 192
 
-        /** One server's real test; the servers are tried one at a time, so a dead one costs no more than this. */
-        private const val REAL_BUDGET_MS = 10_000L
+        /** One batch of real tests; a batch of dead servers costs no more than this. */
+        private const val REAL_BUDGET_MS = 8_000L
+
+        /** How long a "not running" answer is ignored after a start began: the daemon is still starting then. */
+        internal const val START_GRACE_MS = 20_000L
 
         /** Whether the real delay test applies to [server]: Aether servers have none, their TCP answer stands in for it. */
         internal fun needsRealTest(server: V2GetServer): Boolean = server.family != "AETHER"
@@ -442,6 +490,11 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
             val alive = servers.filter { (tcp[it.guid] ?: -1L) > 0L || it.family in TCP_UNTESTABLE }.map { it.guid }
             return alive.ifEmpty { servers.map { it.guid } }
         }
+
+        /** The Aether server whose TCP test answered fastest; null when none answered. */
+        internal fun pickAetherWinner(servers: List<V2GetServer>, tcp: Map<String, Long>): String? =
+            servers.filter { !needsRealTest(it) && (tcp[it.guid] ?: -1L) > 0L }
+                .minByOrNull { tcp.getValue(it.guid) }?.guid
 
         /**
          * The order the survivors get the real test in: the fastest TCP answer first, the ones a TCP test cannot judge
@@ -472,15 +525,20 @@ class V2GetViewModel(private val dataSource: MainDataSource) : ViewModel() {
             return alive.first()
         }
 
-        internal fun reduce(state: V2GetUiState, event: MainServiceEvent): V2GetUiState = when (event) {
+        internal fun reduce(state: V2GetUiState, event: MainServiceEvent, startInFlight: Boolean = false): V2GetUiState = when (event) {
             MainServiceEvent.StateRunning,
             MainServiceEvent.StateStartSuccess -> state.copy(connection = V2GetConnection.Connected)
 
             // "Not running" is also what a state query answers while the servers are still being measured for the
             // start: nothing runs yet, and the start under way is not over.
-            MainServiceEvent.StateNotRunning,
             MainServiceEvent.StateStopSuccess ->
                 if (state.phase != V2GetPhase.None) state else state.copy(connection = V2GetConnection.Disconnected)
+
+            // The same answer while the daemon is still starting a connection just asked for is not a stop.
+            MainServiceEvent.StateNotRunning ->
+                if (state.phase != V2GetPhase.None ||
+                    (startInFlight && state.connection == V2GetConnection.Connecting)
+                ) state else state.copy(connection = V2GetConnection.Disconnected)
 
             is MainServiceEvent.StateConnecting -> state.copy(connection = V2GetConnection.Connecting)
 
