@@ -78,12 +78,14 @@ object V2GetNotices {
         if (session == null) return null
         val daysLeft = V2GetQuota.parseDate(session.expiresAt)?.let { ChronoUnit.DAYS.between(today, it) }
         if (daysLeft != null && daysLeft < 0) return null
-        val used = if (session.quotaBytes > 0) session.usedBytes.toDouble() / session.quotaBytes else 0.0
-        if (session.quotaBytes > 0 && used >= 1.0) return null
-        val percentLeft = ((1.0 - used) * 100).toInt().coerceIn(0, 100)
-        if (session.quotaBytes > 0 && used >= 0.9) return V2GetAlert(V2GetAlertKind.QUOTA_ALMOST, percentLeft = percentLeft)
+        val quota = session.quotaBytes
+        val used = session.usedBytes
+        // Whole-number arithmetic: 93 of 100 used leaves exactly 7 percent, not 6.999...
+        if (quota > 0 && used >= quota) return null
+        val percentLeft = if (quota > 0) ((quota - used) * 100 / quota).toInt().coerceIn(0, 100) else 100
+        if (quota > 0 && used * 100 >= quota * 90) return V2GetAlert(V2GetAlertKind.QUOTA_ALMOST, percentLeft = percentLeft)
         if (daysLeft != null && daysLeft <= 3) return V2GetAlert(V2GetAlertKind.EXPIRY_SOON, daysLeft = daysLeft.toInt())
-        if (session.quotaBytes > 0 && used >= 0.8) return V2GetAlert(V2GetAlertKind.QUOTA_LOW, percentLeft = percentLeft)
+        if (quota > 0 && used * 100 >= quota * 80) return V2GetAlert(V2GetAlertKind.QUOTA_LOW, percentLeft = percentLeft)
         return null
     }
 
