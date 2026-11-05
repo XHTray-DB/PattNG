@@ -3,6 +3,7 @@ package com.v2ray.ang.v2get.ui
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -54,6 +55,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
@@ -355,7 +357,6 @@ private fun PowerButton(connection: V2GetConnection, onToggle: () -> Unit) {
     val connecting = connection == V2GetConnection.Connecting
     val scale: Float
     val halo: Float
-    val bubbleScale: Float
     if (connecting) {
         val pulse = rememberInfiniteTransition(label = "pulse")
         val animatedScale by pulse.animateFloat(
@@ -370,19 +371,24 @@ private fun PowerButton(connection: V2GetConnection, onToggle: () -> Unit) {
             animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
             label = "haloAlpha",
         )
-        val animatedBubble by pulse.animateFloat(
-            initialValue = 0.86f,
-            targetValue = 1.06f,
-            animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-            label = "bubbleScale",
-        )
         scale = animatedScale
         halo = animatedHalo
-        bubbleScale = animatedBubble
     } else {
         scale = 1f
         halo = if (connection == V2GetConnection.Connected) 0.45f else 0.3f
-        bubbleScale = 1f
+    }
+    // The bubble breathes while connecting; when the connection comes up it eases from wherever it is to its normal
+    // size with a soft spring, so it settles instead of freezing at a random size.
+    val bubble = remember { Animatable(1f) }
+    LaunchedEffect(connecting) {
+        if (connecting) {
+            while (true) {
+                bubble.animateTo(1.07f, tween(800, easing = FastOutSlowInEasing))
+                bubble.animateTo(0.88f, tween(800, easing = FastOutSlowInEasing))
+            }
+        } else {
+            bubble.animateTo(1f, spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow))
+        }
     }
     val bubbleColor by animateColorAsState(
         targetValue = when (connection) {
@@ -453,10 +459,24 @@ private fun PowerButton(connection: V2GetConnection, onToggle: () -> Unit) {
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .graphicsLayer { scaleX = bubbleScale; scaleY = bubbleScale }
+                        .graphicsLayer { scaleX = bubble.value; scaleY = bubble.value }
                         .clip(CircleShape)
-                        .background(bubbleColor)
-                        .border(1.dp, bubbleBorder, CircleShape)
+                        .drawBehind {
+                            // A soap bubble: lighter toward the upper left, with a small glint, so it reads as a bubble.
+                            drawCircle(
+                                Brush.radialGradient(
+                                    listOf(Color.White.copy(alpha = 0.35f), bubbleColor),
+                                    center = Offset(size.width * 0.32f, size.height * 0.28f),
+                                    radius = size.minDimension * 0.85f,
+                                )
+                            )
+                            drawCircle(
+                                Color.White.copy(alpha = 0.6f),
+                                radius = size.minDimension * 0.05f,
+                                center = Offset(size.width * 0.27f, size.height * 0.23f),
+                            )
+                        }
+                        .border(1.5.dp, bubbleBorder, CircleShape)
                 )
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Crossfade(targetState = face, animationSpec = tween(250), label = "powerFace") { shown ->

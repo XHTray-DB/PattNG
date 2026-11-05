@@ -237,7 +237,11 @@ object CoreServiceManager {
                     kotlinx.coroutines.delay(HEALTH_FAIL_EVERY_MS)
                     continue
                 }
-                failures = if (tunnelAnswers()) 0 else failures + 1
+                // The delay test URL can be blocked while traffic flows: a second, different request must fail too.
+                val alive = tunnelAnswers() || withContext(Dispatchers.IO) {
+                    try { SpeedtestManager.getRemoteIPInfo() != null } catch (e: Exception) { false }
+                }
+                failures = if (alive) 0 else failures + 1
                 if (failures >= HEALTH_FAILS_TO_SWITCH) {
                     failures = 0
                     if (leaveDeadServer()) kotlinx.coroutines.delay(HEALTH_FIRST_MS)
